@@ -381,6 +381,33 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show the points leaderboard
+fn format_standing_summary(index: usize, row: &db::StandingRow) -> String {
+    format!(
+        "{}. <@{}> — **{}** pts",
+        index + 1,
+        row.user_id,
+        row.points,
+    )
+}
+
+fn format_standing_detail(index: usize, row: &db::StandingRow) -> String {
+    let mut line = format_standing_summary(index, row);
+    for (team_name, points) in &row.teams {
+        line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
+    }
+    match &row.tiebreaker_player {
+        Some(player) => line.push_str(&format!(
+            "\n   • Tie-breaker: **{player}** — {} goals",
+            row.tiebreaker_goals
+        )),
+        None => line.push_str(&format!(
+            "\n   • Tie-breaker — {} goals",
+            row.tiebreaker_goals
+        )),
+    }
+    line
+}
+
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     let rows = {
@@ -394,41 +421,54 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
         return Ok(());
     }
 
-    let lines: Vec<String> = rows
+    let footer = format!(
+        "Win {WIN_POINTS} · Draw {DRAW_POINTS} · Loss {LOSS_POINTS} · TB = tie-breaker goals"
+    );
+
+    let summary_lines: Vec<String> = rows
         .iter()
         .enumerate()
-        .map(|(index, row)| {
-            let mut line = format!(
-                "{}. <@{}> — **{}** pts",
-                index + 1,
-                row.user_id,
-                row.points,
-            );
-            for (team_name, points) in &row.teams {
-                line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
-            }
-            match &row.tiebreaker_player {
-                Some(player) => line.push_str(&format!(
-                    "\n   • Tie-breaker: **{player}** — {} goals",
-                    row.tiebreaker_goals
-                )),
-                None => line.push_str(&format!(
-                    "\n   • Tie-breaker — {} goals",
-                    row.tiebreaker_goals
-                )),
-            }
-            line
-        })
+        .map(|(index, row)| format_standing_summary(index, row))
         .collect();
 
-    let embed = serenity::CreateEmbed::default()
-        .title("World Cup standings")
-        .description(lines.join("\n"))
-        .footer(serenity::CreateEmbedFooter::new(format!(
-            "Win {WIN_POINTS} · Draw {DRAW_POINTS} · Loss {LOSS_POINTS} · TB = tie-breaker goals"
-        )));
+    let detail_lines: Vec<String> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| format_standing_detail(index, row))
+        .collect();
 
-    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    let summary_embed = serenity::CreateEmbed::default()
+        .title("World Cup standings")
+        .description(summary_lines.join("\n"))
+        .footer(serenity::CreateEmbedFooter::new(&footer));
+
+    let reply = ctx
+        .send(poise::CreateReply::default().embed(summary_embed))
+        .await?;
+    let message = reply.into_message().await?;
+
+    let detail_embed = serenity::CreateEmbed::default()
+        .title("Standings breakdown")
+        .description(detail_lines.join("\n\n"))
+        .footer(serenity::CreateEmbedFooter::new(footer));
+
+    let thread = message
+        .channel_id
+        .create_thread_from_message(
+            ctx.serenity_context(),
+            message.id,
+            serenity::CreateThread::new("Standings breakdown"),
+        )
+        .await?;
+
+    thread
+        .id
+        .send_message(
+            ctx.serenity_context(),
+            serenity::CreateMessage::new().embed(detail_embed),
+        )
+        .await?;
+
     Ok(())
 }
 
