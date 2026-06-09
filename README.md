@@ -26,7 +26,7 @@ cargo run
 
 The bot loads environment variables from `.env` via dotenvy.
 
-Slash commands are registered automatically in each guild the bot joins on startup. If commands don’t appear, run `/register` in that server.
+Slash commands are registered automatically in each guild the bot joins on startup. If commands don't appear, run `/register` in that server.
 
 ### Environment variables
 
@@ -45,7 +45,7 @@ Prefix commands use `$` as the prefix (e.g. `$claim Brazil`).
 | `/config channel` | Set the announcement channel (requires Manage Server) |
 | `/claim` | Claim a nation for yourself by name or code (e.g. Brazil, BRA) |
 | `/assign` | Claim a nation for another member |
-| `/unclaim` | Remove one team, or omit the team to remove all |
+| `/unclaim` | Remove a claimed team by name or code (e.g. Brazil, BRA) |
 | `/team` | Show your claimed teams and tie-breaker player |
 | `/pick-player` | Designate a tie-breaker player from your claimed teams' squads |
 | `/teams` | List all team assignments |

@@ -129,18 +129,6 @@ pub fn unregister_team(conn: &Connection, user_id: u64, team_id: i64) -> rusqlit
     Ok(changed > 0)
 }
 
-pub fn unregister_all(conn: &Connection, user_id: u64) -> rusqlite::Result<bool> {
-    conn.execute(
-        "DELETE FROM tiebreaker_picks WHERE user_id = ?1",
-        params![user_id as i64],
-    )?;
-    let changed = conn.execute(
-        "DELETE FROM registrations WHERE user_id = ?1",
-        params![user_id as i64],
-    )?;
-    Ok(changed > 0)
-}
-
 pub fn list_user_registrations(
     conn: &Connection,
     user_id: u64,

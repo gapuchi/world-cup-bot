@@ -157,37 +157,30 @@ pub async fn assign(
     Ok(())
 }
 
-/// Remove one claimed team, or all teams if none is specified
+/// Remove a claimed team
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn unclaim(
     ctx: Context<'_>,
-    #[description = "Team to unclaim (omit to remove all your teams)"] team: Option<String>,
+    #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
 ) -> Result<(), Error> {
     let user_id = ctx.author().id.get();
 
-    let removed = if let Some(team) = &team {
-        let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token).await?;
-        let Some(selected) = find_team(&teams, team) else {
-            ctx.say(format!(
-                "Couldn't find a World Cup team matching \"{team}\". Try the full name or three-letter code (e.g. BRA)."
-            ))
-            .await?;
-            return Ok(());
-        };
+    let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token).await?;
+    let Some(selected) = find_team(&teams, &team) else {
+        ctx.say(format!(
+            "Couldn't find a World Cup team matching \"{team}\". Try the full name or three-letter code (e.g. BRA)."
+        ))
+        .await?;
+        return Ok(());
+    };
 
+    let removed = {
         let conn = ctx.data().db.lock().await;
         db::unregister_team(&conn, user_id, selected.id)?
-    } else {
-        let conn = ctx.data().db.lock().await;
-        db::unregister_all(&conn, user_id)?
     };
 
     if removed {
-        if team.is_some() {
-            ctx.say("That team has been unclaimed.").await?;
-        } else {
-            ctx.say("All your teams have been unclaimed.").await?;
-        }
+        ctx.say("That team has been unclaimed.").await?;
     } else {
         ctx.say("You haven't claimed that team. Use `/team` to see your teams.")
             .await?;
