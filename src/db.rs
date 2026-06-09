@@ -24,8 +24,8 @@ pub struct TiebreakerPick {
 
 pub struct StandingRow {
     pub user_id: u64,
-    pub team_names: String,
     pub points: i64,
+    pub teams: Vec<(String, i64)>,
     pub tiebreaker_goals: i64,
     pub tiebreaker_player: Option<String>,
 }
@@ -337,10 +337,21 @@ pub fn get_standings(conn: &Connection) -> rusqlite::Result<Vec<StandingRow>> {
                 .as_ref()
                 .map(|pick| player_goal_total(conn, pick.player_id).unwrap_or(0))
                 .unwrap_or(0);
+            let mut teams: Vec<(String, i64)> = team_ids
+                .iter()
+                .zip(&team_names)
+                .map(|(team_id, team_name)| {
+                    (
+                        team_name.clone(),
+                        crate::scoring::points_for_team(*team_id, &matches),
+                    )
+                })
+                .collect();
+            teams.sort_by(|a, b| a.0.cmp(&b.0));
             StandingRow {
                 user_id,
-                team_names: team_names.join(", "),
                 points: crate::scoring::points_for_teams(&team_ids, &matches),
+                teams,
                 tiebreaker_goals,
                 tiebreaker_player: pick.map(|pick| pick.player_name),
             }

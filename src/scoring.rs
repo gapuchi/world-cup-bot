@@ -29,6 +29,13 @@ pub fn points_for_team_in_match(team_id: i64, m: &FinishedMatch) -> i64 {
     }
 }
 
+pub fn points_for_team(team_id: i64, matches: &[FinishedMatch]) -> i64 {
+    matches
+        .iter()
+        .map(|m| points_for_team_in_match(team_id, m))
+        .sum()
+}
+
 pub fn points_for_teams(team_ids: &[i64], matches: &[FinishedMatch]) -> i64 {
     team_ids
         .iter()

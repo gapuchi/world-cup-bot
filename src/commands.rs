@@ -398,17 +398,26 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
         .iter()
         .enumerate()
         .map(|(index, row)| {
-            let tiebreaker = match &row.tiebreaker_player {
-                Some(player) => format!("TB: {player} ({})", row.tiebreaker_goals),
-                None => format!("TB: {}", row.tiebreaker_goals),
-            };
-            format!(
-                "{}. <@{}> ({}) — **{}** pts · {tiebreaker}",
+            let mut line = format!(
+                "{}. <@{}> — **{}** pts",
                 index + 1,
                 row.user_id,
-                row.team_names,
                 row.points,
-            )
+            );
+            for (team_name, points) in &row.teams {
+                line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
+            }
+            match &row.tiebreaker_player {
+                Some(player) => line.push_str(&format!(
+                    "\n   • Tie-breaker: **{player}** — {} goals",
+                    row.tiebreaker_goals
+                )),
+                None => line.push_str(&format!(
+                    "\n   • Tie-breaker — {} goals",
+                    row.tiebreaker_goals
+                )),
+            }
+            line
         })
         .collect();
 
