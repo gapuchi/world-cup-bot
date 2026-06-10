@@ -381,17 +381,34 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show the points leaderboard
-fn format_standing_summary(index: usize, row: &db::StandingRow) -> String {
+fn standings_ranks(rows: &[db::StandingRow]) -> Vec<usize> {
+    let mut ranks = Vec::with_capacity(rows.len());
+    let mut i = 0;
+    while i < rows.len() {
+        let mut j = i;
+        while j + 1 < rows.len() && rows[j].points == rows[j + 1].points {
+            j += 1;
+        }
+        let rank = i + 1;
+        for _ in i..=j {
+            ranks.push(rank);
+        }
+        i = j + 1;
+    }
+    ranks
+}
+
+fn format_standing_summary(rank: usize, row: &db::StandingRow) -> String {
     format!(
         "{}. <@{}> — **{}** pts",
-        index + 1,
+        rank,
         row.user_id,
         row.points,
     )
 }
 
-fn format_standing_detail(index: usize, row: &db::StandingRow) -> String {
-    let mut line = format_standing_summary(index, row);
+fn format_standing_detail(rank: usize, row: &db::StandingRow) -> String {
+    let mut line = format_standing_summary(rank, row);
     for (team_name, points) in &row.teams {
         line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
     }
@@ -425,16 +442,18 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
         "Win {WIN_POINTS} · Draw {DRAW_POINTS} · Loss {LOSS_POINTS} · TB = tie-breaker goals"
     );
 
+    let ranks = standings_ranks(&rows);
+
     let summary_lines: Vec<String> = rows
         .iter()
-        .enumerate()
-        .map(|(index, row)| format_standing_summary(index, row))
+        .zip(&ranks)
+        .map(|(row, rank)| format_standing_summary(*rank, row))
         .collect();
 
     let detail_lines: Vec<String> = rows
         .iter()
-        .enumerate()
-        .map(|(index, row)| format_standing_detail(index, row))
+        .zip(&ranks)
+        .map(|(row, rank)| format_standing_detail(*rank, row))
         .collect();
 
     let summary_embed = serenity::CreateEmbed::default()
