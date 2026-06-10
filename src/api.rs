@@ -1,7 +1,43 @@
+use std::fmt;
+
+use reqwest::StatusCode;
 use serde::Deserialize;
 
 const COMPETITION: &str = "WC";
 const BASE_URL: &str = "https://api.football-data.org/v4";
+const RATE_LIMIT_MESSAGE: &str =
+    "The football data API is rate-limited right now. Please try again later.";
+
+#[derive(Debug)]
+pub enum ApiError {
+    RateLimited,
+    Request(reqwest::Error),
+}
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ApiError::RateLimited => write!(f, "{RATE_LIMIT_MESSAGE}"),
+            ApiError::Request(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ApiError::RateLimited => None,
+            ApiError::Request(error) => Some(error),
+        }
+    }
+}
+
+fn check_response(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
+    if response.status() == StatusCode::TOO_MANY_REQUESTS {
+        return Err(ApiError::RateLimited);
+    }
+    response.error_for_status().map_err(ApiError::Request)
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,30 +84,32 @@ struct TeamsResponse {
 pub async fn fetch_teams(
     client: &reqwest::Client,
     token: &str,
-) -> Result<Vec<Team>, reqwest::Error> {
+) -> Result<Vec<Team>, ApiError> {
     let url = format!("{BASE_URL}/competitions/{COMPETITION}/teams");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
         .send()
-        .await?
-        .error_for_status()?;
-    let body: TeamsResponse = response.json().await?;
+        .await
+        .map_err(ApiError::Request)?;
+    let response = check_response(response)?;
+    let body: TeamsResponse = response.json().await.map_err(ApiError::Request)?;
     Ok(body.teams)
 }
 
 pub async fn fetch_finished_matches(
     client: &reqwest::Client,
     token: &str,
-) -> Result<Vec<Match>, reqwest::Error> {
+) -> Result<Vec<Match>, ApiError> {
     let url = format!("{BASE_URL}/competitions/{COMPETITION}/matches?status=FINISHED");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
         .send()
-        .await?
-        .error_for_status()?;
-    let body: MatchesResponse = response.json().await?;
+        .await
+        .map_err(ApiError::Request)?;
+    let response = check_response(response)?;
+    let body: MatchesResponse = response.json().await.map_err(ApiError::Request)?;
     Ok(body.matches)
 }
 
@@ -132,15 +170,16 @@ pub async fn fetch_team_squad(
     client: &reqwest::Client,
     token: &str,
     team_id: i64,
-) -> Result<Vec<SquadPlayer>, reqwest::Error> {
+) -> Result<Vec<SquadPlayer>, ApiError> {
     let url = format!("{BASE_URL}/teams/{team_id}");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
         .send()
-        .await?
-        .error_for_status()?;
-    let body: TeamDetailResponse = response.json().await?;
+        .await
+        .map_err(ApiError::Request)?;
+    let response = check_response(response)?;
+    let body: TeamDetailResponse = response.json().await.map_err(ApiError::Request)?;
     Ok(body.squad)
 }
 
@@ -148,7 +187,7 @@ pub async fn fetch_squads_for_teams(
     client: &reqwest::Client,
     token: &str,
     teams: &[(i64, String)],
-) -> Result<Vec<SquadPlayerMatch>, reqwest::Error> {
+) -> Result<Vec<SquadPlayerMatch>, ApiError> {
     let mut players = Vec::new();
     for (team_id, team_name) in teams {
         let squad = fetch_team_squad(client, token, *team_id).await?;
@@ -174,15 +213,16 @@ pub async fn fetch_squads_for_teams(
 pub async fn fetch_scorers(
     client: &reqwest::Client,
     token: &str,
-) -> Result<Vec<(i64, i64)>, reqwest::Error> {
+) -> Result<Vec<(i64, i64)>, ApiError> {
     let url = format!("{BASE_URL}/competitions/{COMPETITION}/scorers");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
         .send()
-        .await?
-        .error_for_status()?;
-    let body: ScorersResponse = response.json().await?;
+        .await
+        .map_err(ApiError::Request)?;
+    let response = check_response(response)?;
+    let body: ScorersResponse = response.json().await.map_err(ApiError::Request)?;
     Ok(body
         .scorers
         .into_iter()
