@@ -31,7 +31,7 @@ jobs:
       - name: Verify tag matches Cargo.toml
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          CARGO="$(nix develop -c cargo pkgid --format '{{version}}')"
+          CARGO="$(nix develop -c cargo pkgid -q | sed 's/.*#//')"
           if [ "$TAG" != "$CARGO" ]; then
             echo "Tag v$TAG does not match Cargo.toml version $CARGO"
             exit 1
@@ -60,7 +60,7 @@ jobs:
       - name: Package release archive
         shell: bash
         run: |
-          VERSION="$(nix develop -c cargo pkgid --format '{{version}}')"
+          VERSION="$(nix develop -c cargo pkgid -q | sed 's/.*#//')"
           NAME="world-cup-bot-${VERSION}-${{ matrix.platform_id }}"
           mkdir dist
           cp result/bin/world-cup-bot dist/
