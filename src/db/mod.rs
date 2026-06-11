@@ -174,8 +174,9 @@ pub fn upsert_match_result(
     pool_id: i64,
     m: &Match,
 ) -> rusqlite::Result<()> {
-    let home_goals = m.score.full_time.home.unwrap_or(0);
-    let away_goals = m.score.full_time.away.unwrap_or(0);
+    let Some((home_goals, away_goals)) = m.full_time_score() else {
+        return Ok(());
+    };
 
     conn.execute(
         "
@@ -398,6 +399,35 @@ pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<St
             .then_with(|| a.user_id.cmp(&b.user_id))
     });
     Ok(rows)
+}
+
+pub fn get_match_score(
+    conn: &Connection,
+    pool_id: i64,
+    match_id: i64,
+) -> rusqlite::Result<Option<(i64, i64)>> {
+    conn.query_row(
+        "
+        SELECT home_goals, away_goals
+        FROM wc_match_results
+        WHERE pool_id = ?1 AND match_id = ?2
+        ",
+        params![pool_id, match_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+}
+
+pub fn unmark_match_processed(
+    conn: &Connection,
+    pool_id: i64,
+    match_id: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM wc_processed_matches WHERE pool_id = ?1 AND match_id = ?2",
+        params![pool_id, match_id],
+    )?;
+    Ok(())
 }
 
 pub fn is_match_processed(

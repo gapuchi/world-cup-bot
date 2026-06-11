@@ -80,13 +80,18 @@ async fn process_match(
     pool_id: i64,
     m: &Match,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let home_goals = m.score.full_time.home.unwrap_or(0);
-    let away_goals = m.score.full_time.away.unwrap_or(0);
+    let Some((home_goals, away_goals)) = m.full_time_score() else {
+        return Ok(());
+    };
 
     let updates = {
         let conn = data.db.lock().await;
         if db::is_match_processed(&conn, pool_id, m.id)? {
-            return Ok(());
+            let stored = db::get_match_score(&conn, pool_id, m.id)?;
+            if stored == Some((home_goals, away_goals)) {
+                return Ok(());
+            }
+            db::unmark_match_processed(&conn, pool_id, m.id)?;
         }
 
         let finished = scoring::FinishedMatch {
