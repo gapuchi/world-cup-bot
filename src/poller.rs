@@ -52,16 +52,23 @@ async fn poll_once(
         }
     }
 
-    match api::fetch_scorers(&data.http, &data.api_token).await {
+    let scorers_updated = match api::fetch_scorers(&data.http, &data.api_token).await {
         Ok(scorers) => {
+            let count = scorers.len();
             let conn = data.db.lock().await;
             let updated_at = chrono_lite_timestamp();
             if let Err(error) = db::upsert_player_goal_totals(&conn, &scorers, &updated_at) {
                 eprintln!("Failed to cache player goal totals: {error}");
+                None
+            } else {
+                Some(count)
             }
         }
-        Err(error) => eprintln!("Failed to fetch World Cup scorers: {error}"),
-    }
+        Err(error) => {
+            eprintln!("Failed to fetch World Cup scorers: {error}");
+            None
+        }
+    };
 
     for pool in &pools {
         for m in &matches {
@@ -70,6 +77,21 @@ async fn poll_once(
             }
         }
     }
+
+    let scored_matches = matches
+        .iter()
+        .filter(|m| m.full_time_score().is_some())
+        .count();
+    let scorers_line = match scorers_updated {
+        Some(count) => format!(", {count} scorers cached"),
+        None => String::new(),
+    };
+    eprintln!(
+        "World Cup poll complete: {} finished match(es) ({} with scores), {} pool(s){scorers_line}",
+        matches.len(),
+        scored_matches,
+        pools.len(),
+    );
 
     Ok(())
 }
