@@ -1,6 +1,11 @@
+mod migrate;
+mod pool;
+
 use std::collections::HashMap;
 
 use rusqlite::{Connection, OptionalExtension, params};
+
+pub use pool::{ensure_wc_pool, list_wc_pools, set_announce_channel};
 
 use crate::{api::Match, scoring::FinishedMatch};
 
@@ -31,112 +36,85 @@ pub struct StandingRow {
 }
 
 pub fn init(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS config (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            announce_channel_id INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS registrations (
-            user_id INTEGER NOT NULL,
-            team_id INTEGER PRIMARY KEY NOT NULL,
-            team_name TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS match_results (
-            match_id INTEGER PRIMARY KEY NOT NULL,
-            home_team_id INTEGER NOT NULL,
-            away_team_id INTEGER NOT NULL,
-            home_goals INTEGER NOT NULL,
-            away_goals INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS processed_matches (
-            match_id INTEGER PRIMARY KEY NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS tiebreaker_picks (
-            user_id INTEGER PRIMARY KEY NOT NULL,
-            player_id INTEGER NOT NULL,
-            player_name TEXT NOT NULL,
-            team_id INTEGER NOT NULL,
-            team_name TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS player_goal_totals (
-            player_id INTEGER PRIMARY KEY NOT NULL,
-            goals INTEGER NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        ",
-    )
+    migrate::run(conn)
 }
 
-pub fn set_announce_channel(conn: &Connection, channel_id: u64) -> rusqlite::Result<()> {
-    conn.execute(
-        "
-        INSERT INTO config (id, announce_channel_id)
-        VALUES (1, ?1)
-        ON CONFLICT(id) DO UPDATE SET announce_channel_id = excluded.announce_channel_id
-        ",
-        params![channel_id as i64],
-    )?;
-    Ok(())
-}
-
-pub fn get_config(conn: &Connection) -> rusqlite::Result<Option<BotConfig>> {
-    conn.query_row(
-        "SELECT announce_channel_id FROM config WHERE id = 1",
-        [],
-        |row| {
-            Ok(BotConfig {
-                announce_channel_id: row.get::<_, i64>(0)? as u64,
-            })
-        },
-    )
-    .optional()
+pub fn get_config(conn: &Connection, pool_id: i64) -> rusqlite::Result<Option<BotConfig>> {
+    let channel: Option<i64> = conn
+        .query_row(
+            "SELECT announce_channel_id FROM pools WHERE id = ?1",
+            params![pool_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(channel.map(|id| BotConfig {
+        announce_channel_id: id as u64,
+    }))
 }
 
 pub fn register_team(
     conn: &Connection,
+    pool_id: i64,
     user_id: u64,
     team_id: i64,
     team_name: &str,
 ) -> rusqlite::Result<()> {
     conn.execute(
         "
-        INSERT INTO registrations (user_id, team_id, team_name)
-        VALUES (?1, ?2, ?3)
-        ON CONFLICT(team_id) DO UPDATE SET
+        INSERT INTO teams (league_id, team_id, name)
+        VALUES (1, ?1, ?2)
+        ON CONFLICT(league_id, team_id) DO UPDATE SET name = excluded.name
+        ",
+        params![team_id, team_name],
+    )?;
+    conn.execute(
+        "
+        INSERT INTO registrations (pool_id, user_id, team_id, team_name)
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(pool_id, team_id) DO UPDATE SET
             user_id = excluded.user_id,
             team_name = excluded.team_name
         ",
-        params![user_id as i64, team_id, team_name],
+        params![pool_id, user_id as i64, team_id, team_name],
     )?;
     Ok(())
 }
 
-pub fn unregister_team(conn: &Connection, user_id: u64, team_id: i64) -> rusqlite::Result<bool> {
+pub fn unregister_team(
+    conn: &Connection,
+    pool_id: i64,
+    user_id: u64,
+    team_id: i64,
+) -> rusqlite::Result<bool> {
     conn.execute(
-        "DELETE FROM tiebreaker_picks WHERE user_id = ?1 AND team_id = ?2",
-        params![user_id as i64, team_id],
+        "
+        DELETE FROM wc_tiebreaker_picks
+        WHERE pool_id = ?1 AND user_id = ?2 AND team_id = ?3
+        ",
+        params![pool_id, user_id as i64, team_id],
     )?;
     let changed = conn.execute(
-        "DELETE FROM registrations WHERE user_id = ?1 AND team_id = ?2",
-        params![user_id as i64, team_id],
+        "DELETE FROM registrations WHERE pool_id = ?1 AND user_id = ?2 AND team_id = ?3",
+        params![pool_id, user_id as i64, team_id],
     )?;
     Ok(changed > 0)
 }
 
 pub fn list_user_registrations(
     conn: &Connection,
+    pool_id: i64,
     user_id: u64,
 ) -> rusqlite::Result<Vec<Registration>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, team_id, team_name FROM registrations WHERE user_id = ?1 ORDER BY team_name",
+        "
+        SELECT user_id, team_id, team_name
+        FROM registrations
+        WHERE pool_id = ?1 AND user_id = ?2
+        ORDER BY team_name
+        ",
     )?;
-    let rows = stmt.query_map(params![user_id as i64], |row| {
+    let rows = stmt.query_map(params![pool_id, user_id as i64], |row| {
         Ok(Registration {
             user_id: row.get::<_, i64>(0)? as u64,
             team_id: row.get(1)?,
@@ -148,11 +126,16 @@ pub fn list_user_registrations(
 
 pub fn get_registration_by_team(
     conn: &Connection,
+    pool_id: i64,
     team_id: i64,
 ) -> rusqlite::Result<Option<Registration>> {
     conn.query_row(
-        "SELECT user_id, team_id, team_name FROM registrations WHERE team_id = ?1",
-        params![team_id],
+        "
+        SELECT user_id, team_id, team_name
+        FROM registrations
+        WHERE pool_id = ?1 AND team_id = ?2
+        ",
+        params![pool_id, team_id],
         |row| {
             Ok(Registration {
                 user_id: row.get::<_, i64>(0)? as u64,
@@ -164,11 +147,19 @@ pub fn get_registration_by_team(
     .optional()
 }
 
-pub fn list_registrations(conn: &Connection) -> rusqlite::Result<Vec<Registration>> {
+pub fn list_registrations(
+    conn: &Connection,
+    pool_id: i64,
+) -> rusqlite::Result<Vec<Registration>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, team_id, team_name FROM registrations ORDER BY team_name",
+        "
+        SELECT user_id, team_id, team_name
+        FROM registrations
+        WHERE pool_id = ?1
+        ORDER BY team_name
+        ",
     )?;
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![pool_id], |row| {
         Ok(Registration {
             user_id: row.get::<_, i64>(0)? as u64,
             team_id: row.get(1)?,
@@ -178,39 +169,49 @@ pub fn list_registrations(conn: &Connection) -> rusqlite::Result<Vec<Registratio
     rows.collect()
 }
 
-pub fn upsert_match_result(conn: &Connection, m: &Match) -> rusqlite::Result<()> {
+pub fn upsert_match_result(
+    conn: &Connection,
+    pool_id: i64,
+    m: &Match,
+) -> rusqlite::Result<()> {
     let home_goals = m.score.full_time.home.unwrap_or(0);
     let away_goals = m.score.full_time.away.unwrap_or(0);
 
     conn.execute(
         "
-        INSERT INTO match_results (match_id, home_team_id, away_team_id, home_goals, away_goals)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-        ON CONFLICT(match_id) DO UPDATE SET
+        INSERT INTO wc_match_results (
+            pool_id, match_id, home_team_id, away_team_id, home_goals, away_goals, stage
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(pool_id, match_id) DO UPDATE SET
             home_team_id = excluded.home_team_id,
             away_team_id = excluded.away_team_id,
             home_goals = excluded.home_goals,
-            away_goals = excluded.away_goals
+            away_goals = excluded.away_goals,
+            stage = excluded.stage
         ",
         params![
+            pool_id,
             m.id,
             m.home_team.id,
             m.away_team.id,
             home_goals,
             away_goals,
+            m.stage,
         ],
     )?;
     Ok(())
 }
 
-pub fn list_match_results(conn: &Connection) -> rusqlite::Result<Vec<FinishedMatch>> {
+fn list_match_results(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<FinishedMatch>> {
     let mut stmt = conn.prepare(
         "
         SELECT home_team_id, away_team_id, home_goals, away_goals
-        FROM match_results
+        FROM wc_match_results
+        WHERE pool_id = ?1
         ",
     )?;
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![pool_id], |row| {
         Ok(FinishedMatch {
             home_team_id: row.get(0)?,
             away_team_id: row.get(1)?,
@@ -223,6 +224,7 @@ pub fn list_match_results(conn: &Connection) -> rusqlite::Result<Vec<FinishedMat
 
 pub fn set_tiebreaker_pick(
     conn: &Connection,
+    pool_id: i64,
     user_id: u64,
     player_id: i64,
     player_name: &str,
@@ -231,15 +233,18 @@ pub fn set_tiebreaker_pick(
 ) -> rusqlite::Result<()> {
     conn.execute(
         "
-        INSERT INTO tiebreaker_picks (user_id, player_id, player_name, team_id, team_name)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-        ON CONFLICT(user_id) DO UPDATE SET
+        INSERT INTO wc_tiebreaker_picks (
+            pool_id, user_id, player_id, player_name, team_id, team_name
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(pool_id, user_id) DO UPDATE SET
             player_id = excluded.player_id,
             player_name = excluded.player_name,
             team_id = excluded.team_id,
             team_name = excluded.team_name
         ",
         params![
+            pool_id,
             user_id as i64,
             player_id,
             player_name,
@@ -252,15 +257,16 @@ pub fn set_tiebreaker_pick(
 
 pub fn get_tiebreaker_pick(
     conn: &Connection,
+    pool_id: i64,
     user_id: u64,
 ) -> rusqlite::Result<Option<TiebreakerPick>> {
     conn.query_row(
         "
         SELECT user_id, player_id, player_name, team_id, team_name
-        FROM tiebreaker_picks
-        WHERE user_id = ?1
+        FROM wc_tiebreaker_picks
+        WHERE pool_id = ?1 AND user_id = ?2
         ",
-        params![user_id as i64],
+        params![pool_id, user_id as i64],
         |row| {
             Ok(TiebreakerPick {
                 user_id: row.get::<_, i64>(0)? as u64,
@@ -274,18 +280,40 @@ pub fn get_tiebreaker_pick(
     .optional()
 }
 
-pub fn player_goal_total(conn: &Connection, player_id: i64) -> rusqlite::Result<i64> {
+fn wc_season_id(conn: &Connection) -> rusqlite::Result<i64> {
     conn.query_row(
-        "SELECT goals FROM player_goal_totals WHERE player_id = ?1",
-        params![player_id],
+        "
+        SELECT s.id
+        FROM seasons s
+        JOIN leagues l ON l.id = s.league_id
+        WHERE l.slug = ?1 AND s.slug = ?2
+        ",
+        params![migrate::WC_LEAGUE_SLUG, migrate::WC_SEASON_SLUG],
+        |row| row.get(0),
+    )
+}
+
+fn player_goal_total(conn: &Connection, player_id: i64) -> rusqlite::Result<i64> {
+    let season_id = wc_season_id(conn)?;
+    conn.query_row(
+        "
+        SELECT goals
+        FROM wc_player_goal_totals
+        WHERE season_id = ?1 AND player_id = ?2
+        ",
+        params![season_id, player_id],
         |row| row.get(0),
     )
     .optional()
     .map(|goals| goals.unwrap_or(0))
 }
 
-pub fn tiebreaker_goals_for_user(conn: &Connection, user_id: u64) -> rusqlite::Result<i64> {
-    let Some(pick) = get_tiebreaker_pick(conn, user_id)? else {
+pub fn tiebreaker_goals_for_user(
+    conn: &Connection,
+    pool_id: i64,
+    user_id: u64,
+) -> rusqlite::Result<i64> {
+    let Some(pick) = get_tiebreaker_pick(conn, pool_id, user_id)? else {
         return Ok(0);
     };
     player_goal_total(conn, pick.player_id)
@@ -296,31 +324,36 @@ pub fn upsert_player_goal_totals(
     totals: &[(i64, i64)],
     updated_at: &str,
 ) -> rusqlite::Result<()> {
+    let season_id = wc_season_id(conn)?;
     for (player_id, goals) in totals {
         conn.execute(
             "
-            INSERT INTO player_goal_totals (player_id, goals, updated_at)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT(player_id) DO UPDATE SET
+            INSERT INTO wc_player_goal_totals (season_id, player_id, goals, updated_at)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(season_id, player_id) DO UPDATE SET
                 goals = excluded.goals,
                 updated_at = excluded.updated_at
             ",
-            params![player_id, goals, updated_at],
+            params![season_id, player_id, goals, updated_at],
         )?;
     }
     Ok(())
 }
 
-pub fn user_points(conn: &Connection, user_id: u64) -> rusqlite::Result<i64> {
-    let matches = list_match_results(conn)?;
-    let registrations = list_user_registrations(conn, user_id)?;
+pub fn user_points(
+    conn: &Connection,
+    pool_id: i64,
+    user_id: u64,
+) -> rusqlite::Result<i64> {
+    let matches = list_match_results(conn, pool_id)?;
+    let registrations = list_user_registrations(conn, pool_id, user_id)?;
     let team_ids: Vec<i64> = registrations.iter().map(|r| r.team_id).collect();
     Ok(crate::scoring::points_for_teams(&team_ids, &matches))
 }
 
-pub fn get_standings(conn: &Connection) -> rusqlite::Result<Vec<StandingRow>> {
-    let matches = list_match_results(conn)?;
-    let registrations = list_registrations(conn)?;
+pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<StandingRow>> {
+    let matches = list_match_results(conn, pool_id)?;
+    let registrations = list_registrations(conn, pool_id)?;
 
     let mut by_user: HashMap<u64, (Vec<i64>, Vec<String>)> = HashMap::new();
     for registration in registrations {
@@ -332,7 +365,7 @@ pub fn get_standings(conn: &Connection) -> rusqlite::Result<Vec<StandingRow>> {
     let mut rows: Vec<StandingRow> = by_user
         .into_iter()
         .map(|(user_id, (team_ids, team_names))| {
-            let pick = get_tiebreaker_pick(conn, user_id).ok().flatten();
+            let pick = get_tiebreaker_pick(conn, pool_id, user_id).ok().flatten();
             let tiebreaker_goals = pick
                 .as_ref()
                 .map(|pick| player_goal_total(conn, pick.player_id).unwrap_or(0))
@@ -367,20 +400,31 @@ pub fn get_standings(conn: &Connection) -> rusqlite::Result<Vec<StandingRow>> {
     Ok(rows)
 }
 
-pub fn is_match_processed(conn: &Connection, match_id: i64) -> rusqlite::Result<bool> {
+pub fn is_match_processed(
+    conn: &Connection,
+    pool_id: i64,
+    match_id: i64,
+) -> rusqlite::Result<bool> {
     conn.query_row(
-        "SELECT 1 FROM processed_matches WHERE match_id = ?1",
-        params![match_id],
+        "SELECT 1 FROM wc_processed_matches WHERE pool_id = ?1 AND match_id = ?2",
+        params![pool_id, match_id],
         |_| Ok(()),
     )
     .optional()
     .map(|row| row.is_some())
 }
 
-pub fn mark_match_processed(conn: &Connection, match_id: i64) -> rusqlite::Result<()> {
+pub fn mark_match_processed(
+    conn: &Connection,
+    pool_id: i64,
+    match_id: i64,
+) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO processed_matches (match_id) VALUES (?1)",
-        params![match_id],
+        "
+        INSERT OR IGNORE INTO wc_processed_matches (pool_id, match_id)
+        VALUES (?1, ?2)
+        ",
+        params![pool_id, match_id],
     )?;
     Ok(())
 }

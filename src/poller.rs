@@ -38,10 +38,17 @@ async fn poll_once(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let matches = api::fetch_finished_matches(&data.http, &data.api_token).await?;
 
+    let pools = {
+        let conn = data.db.lock().await;
+        db::list_wc_pools(&conn)?
+    };
+
     {
         let conn = data.db.lock().await;
-        for m in &matches {
-            db::upsert_match_result(&conn, m)?;
+        for pool in &pools {
+            for m in &matches {
+                db::upsert_match_result(&conn, pool.id, m)?;
+            }
         }
     }
 
@@ -56,9 +63,11 @@ async fn poll_once(
         Err(error) => eprintln!("Failed to fetch World Cup scorers: {error}"),
     }
 
-    for m in &matches {
-        if let Err(error) = process_match(data, http, m).await {
-            eprintln!("Failed to process match {}: {error}", m.id);
+    for pool in &pools {
+        for m in &matches {
+            if let Err(error) = process_match(data, http, pool.id, m).await {
+                eprintln!("Failed to process match {} for pool {}: {error}", m.id, pool.id);
+            }
         }
     }
 
@@ -68,6 +77,7 @@ async fn poll_once(
 async fn process_match(
     data: &Data,
     http: &serenity::Http,
+    pool_id: i64,
     m: &Match,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let home_goals = m.score.full_time.home.unwrap_or(0);
@@ -75,7 +85,7 @@ async fn process_match(
 
     let updates = {
         let conn = data.db.lock().await;
-        if db::is_match_processed(&conn, m.id)? {
+        if db::is_match_processed(&conn, pool_id, m.id)? {
             return Ok(());
         }
 
@@ -88,9 +98,11 @@ async fn process_match(
 
         let mut updates = Vec::new();
 
-        if let Some(registration) = db::get_registration_by_team(&conn, m.home_team.id)? {
+        if let Some(registration) =
+            db::get_registration_by_team(&conn, pool_id, m.home_team.id)?
+        {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = db::user_points(&conn, registration.user_id)?;
+            let total = db::user_points(&conn, pool_id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -99,9 +111,11 @@ async fn process_match(
             });
         }
 
-        if let Some(registration) = db::get_registration_by_team(&conn, m.away_team.id)? {
+        if let Some(registration) =
+            db::get_registration_by_team(&conn, pool_id, m.away_team.id)?
+        {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = db::user_points(&conn, registration.user_id)?;
+            let total = db::user_points(&conn, pool_id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -111,48 +125,52 @@ async fn process_match(
         }
 
         if updates.is_empty() {
-            db::mark_match_processed(&conn, m.id)?;
+            db::mark_match_processed(&conn, pool_id, m.id)?;
             return Ok(());
         }
 
-        db::mark_match_processed(&conn, m.id)?;
+        db::mark_match_processed(&conn, pool_id, m.id)?;
         updates
     };
 
-    if let Some(config) = {
+    let config = {
         let conn = data.db.lock().await;
-        db::get_config(&conn)?
-    } {
-        let score_line = format!("{home_goals}–{away_goals}");
-        let stage = m.stage.as_deref().unwrap_or("World Cup");
+        db::get_config(&conn, pool_id)?
+    };
 
-        let mut description = format!(
-            "**{}** {} **{}**\n\n",
-            m.home_team.name, score_line, m.away_team.name
-        );
+    let Some(config) = config else {
+        return Ok(());
+    };
 
-        for update in &updates {
-            let mention = serenity::UserId::new(update.user_id).mention();
-            description.push_str(&format!(
-                "{mention} ({}) +{} pts → **{}** total\n",
-                update.team_name, update.points_earned, update.total_points
-            ));
-        }
+    let score_line = format!("{home_goals}–{away_goals}");
+    let stage = m.stage.as_deref().unwrap_or("World Cup");
 
+    let mut description = format!(
+        "**{}** {} **{}**\n\n",
+        m.home_team.name, score_line, m.away_team.name
+    );
+
+    for update in &updates {
+        let mention = serenity::UserId::new(update.user_id).mention();
         description.push_str(&format!(
-            "\nScoring: win {WIN_POINTS}, draw {DRAW_POINTS}, loss {LOSS_POINTS}"
+            "{mention} ({}) +{} pts → **{}** total\n",
+            update.team_name, update.points_earned, update.total_points
         ));
-
-        let embed = serenity::CreateEmbed::default()
-            .title(format!("{stage} — full time"))
-            .description(description)
-            .colour(serenity::Colour::DARK_GREEN);
-
-        let channel = serenity::ChannelId::new(config.announce_channel_id);
-        channel
-            .send_message(http, serenity::CreateMessage::new().embed(embed))
-            .await?;
     }
+
+    description.push_str(&format!(
+        "\nScoring: win {WIN_POINTS}, draw {DRAW_POINTS}, loss {LOSS_POINTS}"
+    ));
+
+    let embed = serenity::CreateEmbed::default()
+        .title(format!("{stage} — full time"))
+        .description(description)
+        .colour(serenity::Colour::DARK_GREEN);
+
+    let channel = serenity::ChannelId::new(config.announce_channel_id);
+    channel
+        .send_message(http, serenity::CreateMessage::new().embed(embed))
+        .await?;
 
     Ok(())
 }

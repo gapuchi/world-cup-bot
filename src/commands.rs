@@ -58,7 +58,8 @@ pub async fn config_channel(
 
     {
         let conn = ctx.data().db.lock().await;
-        db::set_announce_channel(&conn, channel_id)?;
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        db::set_announce_channel(&conn, pool_id, channel_id)?;
     }
 
     ctx.say(format!(
@@ -78,7 +79,6 @@ pub async fn claim(
     ctx.defer().await?;
 
     let user_id = ctx.author().id.get();
-
     let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token).await?;
     let Some(selected) = find_team(&teams, &team) else {
         ctx.say(format!(
@@ -90,7 +90,8 @@ pub async fn claim(
 
     {
         let conn = ctx.data().db.lock().await;
-        if let Some(existing) = db::get_registration_by_team(&conn, selected.id)? {
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        if let Some(existing) = db::get_registration_by_team(&conn, pool_id, selected.id)? {
             if existing.user_id != user_id {
                 ctx.say(format!(
                     "{} is already claimed by <@{}>.",
@@ -101,7 +102,7 @@ pub async fn claim(
             }
         }
 
-        db::register_team(&conn, user_id, selected.id, &selected.name)?;
+        db::register_team(&conn, pool_id, user_id, selected.id, &selected.name)?;
     }
 
     ctx.say(format!(
@@ -122,7 +123,6 @@ pub async fn assign(
     ctx.defer().await?;
 
     let user_id = user.user.id.get();
-
     let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token).await?;
     let Some(selected) = find_team(&teams, &team) else {
         ctx.say(format!(
@@ -134,7 +134,8 @@ pub async fn assign(
 
     {
         let conn = ctx.data().db.lock().await;
-        if let Some(existing) = db::get_registration_by_team(&conn, selected.id)? {
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        if let Some(existing) = db::get_registration_by_team(&conn, pool_id, selected.id)? {
             if existing.user_id != user_id {
                 ctx.say(format!(
                     "**{}** is already claimed by <@{}>.",
@@ -145,7 +146,7 @@ pub async fn assign(
             }
         }
 
-        db::register_team(&conn, user_id, selected.id, &selected.name)?;
+        db::register_team(&conn, pool_id, user_id, selected.id, &selected.name)?;
     }
 
     ctx.say(format!(
@@ -164,7 +165,6 @@ pub async fn unclaim(
     #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
 ) -> Result<(), Error> {
     let user_id = ctx.author().id.get();
-
     let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token).await?;
     let Some(selected) = find_team(&teams, &team) else {
         ctx.say(format!(
@@ -176,7 +176,8 @@ pub async fn unclaim(
 
     let removed = {
         let conn = ctx.data().db.lock().await;
-        db::unregister_team(&conn, user_id, selected.id)?
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        db::unregister_team(&conn, pool_id, user_id, selected.id)?
     };
 
     if removed {
@@ -198,10 +199,10 @@ pub async fn pick_player(
     ctx.defer_ephemeral().await?;
 
     let user_id = ctx.author().id.get();
-
     let registrations = {
         let conn = ctx.data().db.lock().await;
-        db::list_user_registrations(&conn, user_id)?
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        db::list_user_registrations(&conn, pool_id, user_id)?
     };
 
     if registrations.is_empty() {
@@ -224,8 +225,10 @@ pub async fn pick_player(
         ),
         [selected] => {
             let conn = ctx.data().db.lock().await;
+            let pool_id = db::ensure_wc_pool(&conn)?;
             db::set_tiebreaker_pick(
                 &conn,
+                pool_id,
                 user_id,
                 selected.player_id,
                 &selected.player_name,
@@ -258,12 +261,12 @@ pub async fn pick_player(
 #[poise::command(prefix_command, slash_command, guild_only, rename = "team")]
 pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
     let user_id = ctx.author().id.get();
-
     let (registrations, pick, tiebreaker_goals) = {
         let conn = ctx.data().db.lock().await;
-        let registrations = db::list_user_registrations(&conn, user_id)?;
-        let pick = db::get_tiebreaker_pick(&conn, user_id)?;
-        let tiebreaker_goals = db::tiebreaker_goals_for_user(&conn, user_id)?;
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        let registrations = db::list_user_registrations(&conn, pool_id, user_id)?;
+        let pick = db::get_tiebreaker_pick(&conn, pool_id, user_id)?;
+        let tiebreaker_goals = db::tiebreaker_goals_for_user(&conn, pool_id, user_id)?;
         (registrations, pick, tiebreaker_goals)
     };
 
@@ -303,7 +306,8 @@ pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     let registrations = {
         let conn = ctx.data().db.lock().await;
-        db::list_registrations(&conn)?
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        db::list_registrations(&conn, pool_id)?
     };
 
     if registrations.is_empty() {
@@ -348,7 +352,8 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
 
     let claimed_team_ids = {
         let conn = ctx.data().db.lock().await;
-        db::list_registrations(&conn)?
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        db::list_registrations(&conn, pool_id)?
             .iter()
             .map(|registration| registration.team_id)
             .collect::<HashSet<_>>()
@@ -429,7 +434,8 @@ fn format_standing_detail(rank: usize, row: &db::StandingRow) -> String {
 pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     let rows = {
         let conn = ctx.data().db.lock().await;
-        db::get_standings(&conn)?
+        let pool_id = db::ensure_wc_pool(&conn)?;
+        db::get_standings(&conn, pool_id)?
     };
 
     if rows.is_empty() {
