@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub use pool::{ensure_wc_pool, list_wc_pools, set_announce_channel};
+pub use pool::{ensure_wc_pool, get_wc_season, list_wc_pools, set_announce_channel};
 
 use crate::{api::Match, scoring::FinishedMatch};
 

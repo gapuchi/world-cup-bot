@@ -58,6 +58,7 @@ async fn main() {
                 commands::unclaimed(),
                 commands::standings(),
                 commands::pick_player(),
+                commands::season(),
             ],
             ..Default::default()
         })

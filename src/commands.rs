@@ -497,6 +497,22 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Show the active World Cup season
+#[poise::command(prefix_command, slash_command, guild_only)]
+pub async fn season(ctx: Context<'_>) -> Result<(), Error> {
+    let season = {
+        let conn = ctx.data().db.lock().await;
+        db::get_wc_season(&conn)?
+    };
+
+    ctx.say(format!(
+        "This bot is tracking **{}** (`{}`) for **{}**.",
+        season.name, season.slug, season.league_name
+    ))
+    .await?;
+    Ok(())
+}
+
 /// Server configuration
 #[poise::command(prefix_command, slash_command, subcommands("config_channel"))]
 pub async fn config(_ctx: Context<'_>) -> Result<(), Error> {

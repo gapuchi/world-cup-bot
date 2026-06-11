@@ -7,6 +7,31 @@ pub struct Pool {
     pub announce_channel_id: Option<u64>,
 }
 
+pub struct SeasonInfo {
+    pub league_name: String,
+    pub name: String,
+    pub slug: String,
+}
+
+pub fn get_wc_season(conn: &Connection) -> rusqlite::Result<SeasonInfo> {
+    conn.query_row(
+        "
+        SELECT l.name, s.name, s.slug
+        FROM seasons s
+        JOIN leagues l ON l.id = s.league_id
+        WHERE l.slug = ?1 AND s.slug = ?2
+        ",
+        params![WC_LEAGUE_SLUG, WC_SEASON_SLUG],
+        |row| {
+            Ok(SeasonInfo {
+                league_name: row.get(0)?,
+                name: row.get(1)?,
+                slug: row.get(2)?,
+            })
+        },
+    )
+}
+
 pub fn ensure_wc_pool(conn: &Connection) -> rusqlite::Result<i64> {
     if let Some(pool_id) = wc_pool_id(conn)? {
         return Ok(pool_id);
