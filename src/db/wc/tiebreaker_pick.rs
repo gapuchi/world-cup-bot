@@ -62,4 +62,20 @@ impl WcTiebreakerPick {
         )
         .optional()
     }
+
+    pub fn delete_for_team(
+        conn: &Connection,
+        pool_id: i64,
+        user_id: u64,
+        team_id: i64,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "
+            DELETE FROM wc_tiebreaker_picks
+            WHERE pool_id = ?1 AND user_id = ?2 AND team_id = ?3
+            ",
+            params![pool_id, user_id as i64, team_id],
+        )?;
+        Ok(())
+    }
 }

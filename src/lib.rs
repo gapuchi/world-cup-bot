@@ -1,4 +1,5 @@
 pub mod api;
+pub mod soccar;
 pub mod commands;
 pub mod db;
 pub mod poller;

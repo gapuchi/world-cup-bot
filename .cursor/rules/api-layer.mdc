@@ -1,0 +1,22 @@
+---
+description: football-data.org API client and domain layer conventions
+globs: src/api/**,src/soccar.rs
+alwaysApply: false
+---
+
+# API layer
+
+`src/api/football_data.rs` is the thin HTTP wrapper around football-data.org.
+
+**Belongs in `api/`:**
+- `FootballDataApi` methods that map to endpoints
+- `ApiError`, rate-limit handling
+- Serde structs matching API JSON (`Team`, `Match`, `SquadPlayer`, `Scorer`)
+
+**Belongs in `soccar.rs` (not `api/`):**
+- `find_team`, `find_players`
+- `fetch_squads_for_teams` (multi-call orchestration + role filter)
+- `full_time_score` (interpreting nullable API score fields)
+- `SquadPlayerMatch`
+
+Call sites use `ctx.data().soccar_api()` or `data.soccar_api()`.

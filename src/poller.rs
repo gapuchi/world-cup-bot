@@ -6,8 +6,9 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    api::{self, Match},
+    api::Match,
     db::{Pool, PoolMeta, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch},
+    soccar::full_time_score,
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     standings,
     types::Data,
@@ -109,7 +110,7 @@ async fn poll_wc(
     pools: &[PoolMeta],
     competition: &str,
 ) -> Result<(usize, usize, String), Box<dyn std::error::Error + Send + Sync>> {
-    let matches = api::fetch_finished_matches(&data.http, &data.api_token, competition).await?;
+    let matches = data.soccar_api().fetch_finished_matches(competition).await?;
 
     {
         let conn = data.db.lock().await;
@@ -123,13 +124,17 @@ async fn poll_wc(
     }
 
     let season_id = pools[0].season_id;
-    let scorers_line = match api::fetch_scorers(&data.http, &data.api_token, competition).await {
+    let scorers_line = match data.soccar_api().fetch_scorers(competition).await {
         Ok(scorers) => {
             let count = scorers.len();
             let conn = data.db.lock().await;
             let updated_at = chrono_lite_timestamp();
+            let scorer_pairs: Vec<(i64, i64)> = scorers
+                .into_iter()
+                .map(|scorer| (scorer.player_id, scorer.goals))
+                .collect();
             if let Err(error) =
-                WcPlayerGoalTotal::upsert_batch(&conn, season_id, &scorers, &updated_at)
+                WcPlayerGoalTotal::upsert_batch(&conn, season_id, &scorer_pairs, &updated_at)
             {
                 eprintln!("Failed to cache player goal totals: {error}");
                 String::new()
@@ -157,14 +162,14 @@ async fn poll_wc(
 
     let scored_matches = matches
         .iter()
-        .filter(|m| m.full_time_score().is_some())
+        .filter(|m| full_time_score(m).is_some())
         .count();
 
     Ok((matches.len(), scored_matches, scorers_line))
 }
 
 fn wc_match_result_from_api(pool_id: i64, m: &Match) -> Option<WcMatchResult> {
-    let (home_goals, away_goals) = m.full_time_score()?;
+    let (home_goals, away_goals) = full_time_score(m)?;
     Some(WcMatchResult {
         pool_id,
         match_id: m.id,
@@ -183,7 +188,7 @@ async fn process_wc_match(
     m: &Match,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pool = &meta.pool;
-    let Some((home_goals, away_goals)) = m.full_time_score() else {
+    let Some((home_goals, away_goals)) = full_time_score(m) else {
         return Ok(());
     };
 

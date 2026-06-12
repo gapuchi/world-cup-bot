@@ -1,0 +1,16 @@
+---
+description: Core project architecture and layer boundaries
+alwaysApply: true
+---
+
+# Architecture
+
+Read `AGENTS.md` for full context. Key rules:
+
+- `src/api/` = HTTP clients + serde DTOs only. No search, filtering, or app logic.
+- `src/soccar.rs` = domain logic on soccer API data (`find_team`, `full_time_score`, squad aggregation).
+- `src/db/<entity>.rs` = one persistence module per table; `db/mod.rs` re-exports only.
+- Commands use `Pool::active()`; poller uses `Pool::list_all_with_meta()` for all pools.
+- Use `data.soccar_api()` — never pass `http` + `api_token` separately.
+
+New external API → `src/api/<name>.rs`, re-export from `api/mod.rs`.

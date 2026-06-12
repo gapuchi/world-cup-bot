@@ -4,11 +4,11 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    api::{self, find_players, find_team},
     db::{
         BotConfig, Pool, Registration, Season, SeasonDisplay, WcTiebreakerPick,
         league_exists, league_supports_pool,
     },
+    soccar::{fetch_squads_for_teams, find_players, find_team},
     scoring::{DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     standings::{self, StandingRow},
     types::{Context, Error},
@@ -183,7 +183,7 @@ pub async fn claim(
         let pool = Pool::active(&conn)?;
         active_competition(&conn, &pool)?
     };
-    let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token, &competition).await?;
+    let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
     let Some(selected) = find_team(&teams, &team) else {
         ctx.say(format!(
             "Couldn't find a World Cup team matching \"{team}\". Try the full name or three-letter code (e.g. BRA)."
@@ -232,7 +232,7 @@ pub async fn assign(
         let pool = Pool::active(&conn)?;
         active_competition(&conn, &pool)?
     };
-    let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token, &competition).await?;
+    let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
     let Some(selected) = find_team(&teams, &team) else {
         ctx.say(format!(
             "Couldn't find a World Cup team matching \"{team}\". Try the full name or three-letter code (e.g. BRA)."
@@ -279,7 +279,7 @@ pub async fn unclaim(
         let pool = Pool::active(&conn)?;
         active_competition(&conn, &pool)?
     };
-    let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token, &competition).await?;
+    let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
     let Some(selected) = find_team(&teams, &team) else {
         ctx.say(format!(
             "Couldn't find a World Cup team matching \"{team}\". Try the full name or three-letter code (e.g. BRA)."
@@ -330,7 +330,7 @@ pub async fn pick_player(
         .map(|registration| (registration.team_id, registration.team_name.clone()))
         .collect();
 
-    let squad = api::fetch_squads_for_teams(&ctx.data().http, &ctx.data().api_token, &teams).await?;
+    let squad = fetch_squads_for_teams(&ctx.data().soccar_api(), &teams).await?;
     let matches = find_players(&squad, &player);
 
     let message = match matches.as_slice() {
@@ -467,7 +467,7 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
         let pool = Pool::active(&conn)?;
         active_competition(&conn, &pool)?
     };
-    let teams = api::fetch_teams(&ctx.data().http, &ctx.data().api_token, &competition).await?;
+    let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
 
     let claimed_team_ids = {
         let conn = ctx.data().db.lock().await;

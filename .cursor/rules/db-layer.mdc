@@ -1,0 +1,17 @@
+---
+description: SQLite persistence module conventions
+globs: src/db/**
+alwaysApply: false
+---
+
+# Database layer
+
+Shared entities at `src/db/` root; league-specific gameplay under `src/db/<league>/` (e.g. `wc/`). `mod.rs` only runs `migrate::run` and re-exports public types.
+
+- Methods take `&Connection`, return `rusqlite::Result<T>`.
+- No HTTP, Discord, or poise imports in `db/`.
+- Schema changes go in `migrate.rs` with a version bump.
+- Gameplay data is scoped by `pool_id`; seasons link pools to `external_season_id`.
+- Active pool: `BotConfig::get` → `Pool::active`. Do not hardcode pool ids in commands.
+
+World Cup tables (`wc_*` SQL names): accessors in `db/wc/` — `WcMatchResult`, `WcProcessedMatch`, `WcPlayerGoalTotal`, `WcTiebreakerPick`.
