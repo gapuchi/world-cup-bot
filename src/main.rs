@@ -3,6 +3,7 @@ mod commands;
 mod db;
 mod poller;
 mod scoring;
+mod standings;
 mod types;
 
 use poise::serenity_prelude as serenity;

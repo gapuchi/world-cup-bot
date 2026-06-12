@@ -4,3 +4,4 @@
 .direnv/
 result
 *.db
+.cursor/plans

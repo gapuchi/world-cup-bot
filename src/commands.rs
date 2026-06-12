@@ -5,8 +5,9 @@ use serenity::Mentionable;
 
 use crate::{
     api::{self, find_players, find_team},
-    db,
+    db::{Pool, Registration, SeasonDisplay, WcTiebreakerPick},
     scoring::{DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
+    standings::{self, StandingRow},
     types::{Context, Error},
 };
 
@@ -66,8 +67,8 @@ pub async fn config_channel(
 
     {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        db::set_announce_channel(&conn, pool_id, channel_id)?;
+        let pool = Pool::ensure_wc(&conn)?;
+        Pool::set_announce_channel(&conn, pool.id, channel_id)?;
     }
 
     ctx.say(format!(
@@ -98,8 +99,8 @@ pub async fn claim(
 
     {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        if let Some(existing) = db::get_registration_by_team(&conn, pool_id, selected.id)? {
+        let pool = Pool::ensure_wc(&conn)?;
+        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)? {
             if existing.user_id != user_id {
                 ctx.say(format!(
                     "{} is already claimed by <@{}>.",
@@ -110,7 +111,7 @@ pub async fn claim(
             }
         }
 
-        db::register_team(&conn, pool_id, user_id, selected.id, &selected.name)?;
+        Registration::upsert(&conn, pool.id, user_id, selected.id, &selected.name)?;
     }
 
     ctx.say(format!(
@@ -142,8 +143,8 @@ pub async fn assign(
 
     {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        if let Some(existing) = db::get_registration_by_team(&conn, pool_id, selected.id)? {
+        let pool = Pool::ensure_wc(&conn)?;
+        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)? {
             if existing.user_id != user_id {
                 ctx.say(format!(
                     "**{}** is already claimed by <@{}>.",
@@ -154,7 +155,7 @@ pub async fn assign(
             }
         }
 
-        db::register_team(&conn, pool_id, user_id, selected.id, &selected.name)?;
+        Registration::upsert(&conn, pool.id, user_id, selected.id, &selected.name)?;
     }
 
     ctx.say(format!(
@@ -184,8 +185,8 @@ pub async fn unclaim(
 
     let removed = {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        db::unregister_team(&conn, pool_id, user_id, selected.id)?
+        let pool = Pool::ensure_wc(&conn)?;
+        Registration::delete(&conn, pool.id, user_id, selected.id)?
     };
 
     if removed {
@@ -209,8 +210,8 @@ pub async fn pick_player(
     let user_id = ctx.author().id.get();
     let registrations = {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        db::list_user_registrations(&conn, pool_id, user_id)?
+        let pool = Pool::ensure_wc(&conn)?;
+        Registration::list_for_user(&conn, pool.id, user_id)?
     };
 
     if registrations.is_empty() {
@@ -233,10 +234,10 @@ pub async fn pick_player(
         ),
         [selected] => {
             let conn = ctx.data().db.lock().await;
-            let pool_id = db::ensure_wc_pool(&conn)?;
-            db::set_tiebreaker_pick(
+            let pool = Pool::ensure_wc(&conn)?;
+            WcTiebreakerPick::upsert(
                 &conn,
-                pool_id,
+                pool.id,
                 user_id,
                 selected.player_id,
                 &selected.player_name,
@@ -271,10 +272,10 @@ pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
     let user_id = ctx.author().id.get();
     let (registrations, pick, tiebreaker_goals) = {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        let registrations = db::list_user_registrations(&conn, pool_id, user_id)?;
-        let pick = db::get_tiebreaker_pick(&conn, pool_id, user_id)?;
-        let tiebreaker_goals = db::tiebreaker_goals_for_user(&conn, pool_id, user_id)?;
+        let pool = Pool::ensure_wc(&conn)?;
+        let registrations = Registration::list_for_user(&conn, pool.id, user_id)?;
+        let pick = WcTiebreakerPick::get_for_user(&conn, pool.id, user_id)?;
+        let tiebreaker_goals = standings::tiebreaker_goals_for_user(&conn, pool.id, user_id)?;
         (registrations, pick, tiebreaker_goals)
     };
 
@@ -314,8 +315,8 @@ pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     let registrations = {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        db::list_registrations(&conn, pool_id)?
+        let pool = Pool::ensure_wc(&conn)?;
+        Registration::list_for_pool(&conn, pool.id)?
     };
 
     if registrations.is_empty() {
@@ -360,8 +361,8 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
 
     let claimed_team_ids = {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        db::list_registrations(&conn, pool_id)?
+        let pool = Pool::ensure_wc(&conn)?;
+        Registration::list_for_pool(&conn, pool.id)?
             .iter()
             .map(|registration| registration.team_id)
             .collect::<HashSet<_>>()
@@ -394,7 +395,7 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show the points leaderboard
-fn standings_ranks(rows: &[db::StandingRow]) -> Vec<usize> {
+fn standings_ranks(rows: &[StandingRow]) -> Vec<usize> {
     let mut ranks = Vec::with_capacity(rows.len());
     let mut i = 0;
     while i < rows.len() {
@@ -411,7 +412,7 @@ fn standings_ranks(rows: &[db::StandingRow]) -> Vec<usize> {
     ranks
 }
 
-fn format_standing_summary(rank: usize, row: &db::StandingRow) -> String {
+fn format_standing_summary(rank: usize, row: &StandingRow) -> String {
     format!(
         "**{rank}** · <@{}> — **{}** pts",
         row.user_id,
@@ -419,7 +420,7 @@ fn format_standing_summary(rank: usize, row: &db::StandingRow) -> String {
     )
 }
 
-fn format_standing_detail(rank: usize, row: &db::StandingRow) -> String {
+fn format_standing_detail(rank: usize, row: &StandingRow) -> String {
     let mut line = format_standing_summary(rank, row);
     for (team_name, points) in &row.teams {
         line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
@@ -441,8 +442,8 @@ fn format_standing_detail(rank: usize, row: &db::StandingRow) -> String {
 pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     let rows = {
         let conn = ctx.data().db.lock().await;
-        let pool_id = db::ensure_wc_pool(&conn)?;
-        db::get_standings(&conn, pool_id)?
+        let pool = Pool::ensure_wc(&conn)?;
+        standings::get_standings(&conn, pool.id)?
     };
 
     if rows.is_empty() {
@@ -509,7 +510,7 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn season(ctx: Context<'_>) -> Result<(), Error> {
     let season = {
         let conn = ctx.data().db.lock().await;
-        db::get_wc_season(&conn)?
+        SeasonDisplay::wc(&conn)?
     };
 
     ctx.say(format!(
@@ -529,7 +530,7 @@ pub async fn config(_ctx: Context<'_>) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::StandingRow;
+    use crate::standings::StandingRow;
 
     fn standing_row(points: i64) -> StandingRow {
         StandingRow {

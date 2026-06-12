@@ -1,0 +1,109 @@
+use rusqlite::{Connection, OptionalExtension, params};
+
+use super::team::Team;
+
+pub struct Registration {
+    pub pool_id: i64,
+    pub user_id: u64,
+    pub team_id: i64,
+    pub team_name: String,
+}
+
+impl Registration {
+    pub fn upsert(
+        conn: &Connection,
+        pool_id: i64,
+        user_id: u64,
+        team_id: i64,
+        team_name: &str,
+    ) -> rusqlite::Result<()> {
+        Team::upsert_name(conn, team_id, team_name)?;
+        conn.execute(
+            "
+            INSERT INTO registrations (pool_id, user_id, team_id, team_name)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(pool_id, team_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                team_name = excluded.team_name
+            ",
+            params![pool_id, user_id as i64, team_id, team_name],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete(
+        conn: &Connection,
+        pool_id: i64,
+        user_id: u64,
+        team_id: i64,
+    ) -> rusqlite::Result<bool> {
+        conn.execute(
+            "
+            DELETE FROM wc_tiebreaker_picks
+            WHERE pool_id = ?1 AND user_id = ?2 AND team_id = ?3
+            ",
+            params![pool_id, user_id as i64, team_id],
+        )?;
+        let changed = conn.execute(
+            "DELETE FROM registrations WHERE pool_id = ?1 AND user_id = ?2 AND team_id = ?3",
+            params![pool_id, user_id as i64, team_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn get_by_team(
+        conn: &Connection,
+        pool_id: i64,
+        team_id: i64,
+    ) -> rusqlite::Result<Option<Self>> {
+        conn.query_row(
+            "
+            SELECT pool_id, user_id, team_id, team_name
+            FROM registrations
+            WHERE pool_id = ?1 AND team_id = ?2
+            ",
+            params![pool_id, team_id],
+            row_from,
+        )
+        .optional()
+    }
+
+    pub fn list_for_pool(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<Self>> {
+        let mut stmt = conn.prepare(
+            "
+            SELECT pool_id, user_id, team_id, team_name
+            FROM registrations
+            WHERE pool_id = ?1
+            ORDER BY team_name
+            ",
+        )?;
+        let rows = stmt.query_map(params![pool_id], row_from)?;
+        rows.collect()
+    }
+
+    pub fn list_for_user(
+        conn: &Connection,
+        pool_id: i64,
+        user_id: u64,
+    ) -> rusqlite::Result<Vec<Self>> {
+        let mut stmt = conn.prepare(
+            "
+            SELECT pool_id, user_id, team_id, team_name
+            FROM registrations
+            WHERE pool_id = ?1 AND user_id = ?2
+            ORDER BY team_name
+            ",
+        )?;
+        let rows = stmt.query_map(params![pool_id, user_id as i64], row_from)?;
+        rows.collect()
+    }
+}
+
+fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<Registration> {
+    Ok(Registration {
+        pool_id: row.get(0)?,
+        user_id: row.get::<_, i64>(1)? as u64,
+        team_id: row.get(2)?,
+        team_name: row.get(3)?,
+    })
+}

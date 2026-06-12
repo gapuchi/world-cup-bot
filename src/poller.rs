@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use crate::{
     api::{self, Match},
-    db,
+    db::{Pool, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch},
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
+    standings,
     types::Data,
 };
 
@@ -40,14 +41,16 @@ async fn poll_once(
 
     let pools = {
         let conn = data.db.lock().await;
-        db::list_wc_pools(&conn)?
+        Pool::list_wc(&conn)?
     };
 
     {
         let conn = data.db.lock().await;
         for pool in &pools {
             for m in &matches {
-                db::upsert_match_result(&conn, pool.id, m)?;
+                if let Some(result) = wc_match_result_from_api(pool.id, m) {
+                    result.upsert(&conn)?;
+                }
             }
         }
     }
@@ -57,7 +60,7 @@ async fn poll_once(
             let count = scorers.len();
             let conn = data.db.lock().await;
             let updated_at = chrono_lite_timestamp();
-            if let Err(error) = db::upsert_player_goal_totals(&conn, &scorers, &updated_at) {
+            if let Err(error) = WcPlayerGoalTotal::upsert_batch(&conn, &scorers, &updated_at) {
                 eprintln!("Failed to cache player goal totals: {error}");
                 None
             } else {
@@ -72,8 +75,11 @@ async fn poll_once(
 
     for pool in &pools {
         for m in &matches {
-            if let Err(error) = process_match(data, http, pool.id, m).await {
-                eprintln!("Failed to process match {} for pool {}: {error}", m.id, pool.id);
+            if let Err(error) = process_match(data, http, pool, m).await {
+                eprintln!(
+                    "Failed to process match {} for pool {}: {error}",
+                    m.id, pool.id
+                );
             }
         }
     }
@@ -96,10 +102,24 @@ async fn poll_once(
     Ok(())
 }
 
+fn wc_match_result_from_api(pool_id: i64, m: &Match) -> Option<WcMatchResult> {
+    let (home_goals, away_goals) = m.full_time_score()?;
+    Some(WcMatchResult {
+        pool_id,
+        match_id: m.id,
+        home_team_id: m.home_team.id,
+        away_team_id: m.away_team.id,
+        home_goals,
+        away_goals,
+        stage: m.stage.clone(),
+        finished_at: None,
+    })
+}
+
 async fn process_match(
     data: &Data,
     http: &serenity::Http,
-    pool_id: i64,
+    pool: &Pool,
     m: &Match,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let Some((home_goals, away_goals)) = m.full_time_score() else {
@@ -108,12 +128,12 @@ async fn process_match(
 
     let updates = {
         let conn = data.db.lock().await;
-        if db::is_match_processed(&conn, pool_id, m.id)? {
-            let stored = db::get_match_score(&conn, pool_id, m.id)?;
+        if WcProcessedMatch::is_processed(&conn, pool.id, m.id)? {
+            let stored = WcMatchResult::score(&conn, pool.id, m.id)?;
             if stored == Some((home_goals, away_goals)) {
                 return Ok(());
             }
-            db::unmark_match_processed(&conn, pool_id, m.id)?;
+            WcProcessedMatch::unmark(&conn, pool.id, m.id)?;
         }
 
         let finished = scoring::FinishedMatch {
@@ -126,10 +146,10 @@ async fn process_match(
         let mut updates = Vec::new();
 
         if let Some(registration) =
-            db::get_registration_by_team(&conn, pool_id, m.home_team.id)?
+            Registration::get_by_team(&conn, pool.id, m.home_team.id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = db::user_points(&conn, pool_id, registration.user_id)?;
+            let total = standings::user_points(&conn, pool.id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -139,10 +159,10 @@ async fn process_match(
         }
 
         if let Some(registration) =
-            db::get_registration_by_team(&conn, pool_id, m.away_team.id)?
+            Registration::get_by_team(&conn, pool.id, m.away_team.id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = db::user_points(&conn, pool_id, registration.user_id)?;
+            let total = standings::user_points(&conn, pool.id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -152,20 +172,15 @@ async fn process_match(
         }
 
         if updates.is_empty() {
-            db::mark_match_processed(&conn, pool_id, m.id)?;
+            WcProcessedMatch::mark(&conn, pool.id, m.id)?;
             return Ok(());
         }
 
-        db::mark_match_processed(&conn, pool_id, m.id)?;
+        WcProcessedMatch::mark(&conn, pool.id, m.id)?;
         updates
     };
 
-    let config = {
-        let conn = data.db.lock().await;
-        db::get_config(&conn, pool_id)?
-    };
-
-    let Some(config) = config else {
+    let Some(channel_id) = pool.announce_channel_id else {
         return Ok(());
     };
 
@@ -194,7 +209,7 @@ async fn process_match(
         .description(description)
         .colour(serenity::Colour::DARK_GREEN);
 
-    let channel = serenity::ChannelId::new(config.announce_channel_id);
+    let channel = serenity::ChannelId::new(channel_id);
     channel
         .send_message(http, serenity::CreateMessage::new().embed(embed))
         .await?;
