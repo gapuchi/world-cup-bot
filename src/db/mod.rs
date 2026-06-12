@@ -14,6 +14,7 @@ pub use league::{exists as league_exists, supports_pool as league_supports_pool}
 pub use pool::{Pool, PoolMeta};
 pub use registration::Registration;
 pub use season::{Season, SeasonDisplay};
+pub use migrate::SCHEMA_VERSION;
 pub use wc::{
     WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, WcTiebreakerPick,
 };

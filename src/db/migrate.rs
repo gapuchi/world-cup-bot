@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 1;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const WC_SEASON_SLUG: &str = "wc-2026";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
@@ -172,36 +172,15 @@ CREATE TABLE IF NOT EXISTS nfl_player_touchdown_totals (
 ";
 
 pub fn run(conn: &Connection) -> rusqlite::Result<()> {
-    let version = current_version(conn)?;
-
-    if version.is_none() {
-        let legacy = has_legacy_schema(conn)?;
-        if legacy {
-            rename_legacy_tables(conn)?;
-        }
-        conn.execute_batch(CREATE_SCHEMA)?;
-        seed_catalog(conn)?;
-        let tx = conn.unchecked_transaction()?;
-        if legacy {
-            migrate_legacy(&tx)?;
-        } else {
-            ensure_wc_pool(&tx)?;
-        }
-        ensure_bot_config(&tx)?;
-        set_version(&tx, SCHEMA_VERSION)?;
-        tx.commit()?;
-        return Ok(());
-    }
-
     conn.execute_batch(CREATE_SCHEMA)?;
     seed_catalog(conn)?;
 
-    if version == Some(1) {
-        migrate_v1_to_v2(conn)?;
-    }
-
-    if current_version(conn)? == Some(2) {
-        migrate_v2_to_v3(conn)?;
+    if current_version(conn)?.is_none() {
+        let tx = conn.unchecked_transaction()?;
+        ensure_wc_pool(&tx)?;
+        ensure_bot_config(&tx)?;
+        set_version(&tx, SCHEMA_VERSION)?;
+        tx.commit()?;
     }
 
     Ok(())
@@ -283,112 +262,6 @@ fn table_exists(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
     .map(|row| row.is_some())
 }
 
-fn has_legacy_schema(conn: &Connection) -> rusqlite::Result<bool> {
-    Ok(table_exists(conn, "config")?
-        && table_exists(conn, "registrations")?
-        && table_exists(conn, "match_results")?)
-}
-
-fn rename_legacy_tables(conn: &Connection) -> rusqlite::Result<()> {
-    for (old, new) in [
-        ("config", "legacy_config"),
-        ("registrations", "legacy_registrations"),
-        ("match_results", "legacy_match_results"),
-        ("processed_matches", "legacy_processed_matches"),
-        ("tiebreaker_picks", "legacy_tiebreaker_picks"),
-        ("player_goal_totals", "legacy_player_goal_totals"),
-    ] {
-        if table_exists(conn, old)? {
-            conn.execute(&format!("ALTER TABLE {old} RENAME TO {new}"), [])?;
-        }
-    }
-    Ok(())
-}
-
-fn migrate_legacy(tx: &Transaction) -> rusqlite::Result<()> {
-    let announce_channel_id: Option<i64> = tx
-        .query_row(
-            "SELECT announce_channel_id FROM legacy_config WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-
-    tx.execute(
-        "
-        INSERT INTO pools (id, season_id, announce_channel_id)
-        VALUES (1, 1, ?1)
-        ",
-        rusqlite::params![announce_channel_id],
-    )?;
-
-    tx.execute(
-        "
-        INSERT OR IGNORE INTO teams (league_id, team_id, name)
-        SELECT 1, team_id, team_name
-        FROM legacy_registrations
-        ",
-        [],
-    )?;
-
-    tx.execute(
-        "
-        INSERT INTO registrations (pool_id, user_id, team_id, team_name)
-        SELECT 1, user_id, team_id, team_name
-        FROM legacy_registrations
-        ",
-        [],
-    )?;
-
-    tx.execute(
-        "
-        INSERT INTO wc_match_results (
-            pool_id, match_id, home_team_id, away_team_id, home_goals, away_goals
-        )
-        SELECT 1, match_id, home_team_id, away_team_id, home_goals, away_goals
-        FROM legacy_match_results
-        ",
-        [],
-    )?;
-
-    tx.execute(
-        "
-        INSERT INTO wc_processed_matches (pool_id, match_id)
-        SELECT 1, match_id
-        FROM legacy_processed_matches
-        ",
-        [],
-    )?;
-
-    tx.execute(
-        "
-        INSERT INTO wc_tiebreaker_picks (
-            pool_id, user_id, player_id, player_name, team_id, team_name
-        )
-        SELECT 1, user_id, player_id, player_name, team_id, team_name
-        FROM legacy_tiebreaker_picks
-        ",
-        [],
-    )?;
-
-    tx.execute(
-        "
-        INSERT INTO wc_player_goal_totals (season_id, player_id, goals, updated_at)
-        SELECT 1, player_id, goals, updated_at
-        FROM legacy_player_goal_totals
-        ",
-        [],
-    )?;
-
-    drop_legacy_tables(tx)
-}
-
-fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    Ok(rows.flatten().any(|name| name == column))
-}
-
 fn ensure_wc_pool(tx: &Transaction) -> rusqlite::Result<()> {
     let season_id: i64 = tx.query_row(
         "
@@ -439,61 +312,5 @@ fn ensure_bot_config(tx: &Transaction) -> rusqlite::Result<()> {
         ",
         [pool_id],
     )?;
-    Ok(())
-}
-
-fn migrate_v2_to_v3(conn: &Connection) -> rusqlite::Result<()> {
-    let tx = conn.unchecked_transaction()?;
-    tx.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS bot_config (
-            id                      INTEGER PRIMARY KEY CHECK (id = 1),
-            active_pool_id          INTEGER NOT NULL REFERENCES pools(id)
-        );
-        ",
-    )?;
-    ensure_wc_pool(&tx)?;
-    ensure_bot_config(&tx)?;
-    set_version(&tx, SCHEMA_VERSION)?;
-    tx.commit()
-}
-
-fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "pools", "guild_id")? {
-        return Ok(());
-    }
-
-    let tx = conn.unchecked_transaction()?;
-    tx.execute("PRAGMA foreign_keys = OFF", [])?;
-    tx.execute_batch(
-        "
-        CREATE TABLE pools_new (
-            id                      INTEGER PRIMARY KEY,
-            season_id               INTEGER NOT NULL REFERENCES seasons(id),
-            announce_channel_id     INTEGER,
-            UNIQUE (season_id)
-        );
-        INSERT INTO pools_new (id, season_id, announce_channel_id)
-        SELECT id, season_id, announce_channel_id FROM pools;
-        DROP TABLE pools;
-        ALTER TABLE pools_new RENAME TO pools;
-        ",
-    )?;
-    tx.execute("PRAGMA foreign_keys = ON", [])?;
-    set_version(&tx, SCHEMA_VERSION)?;
-    tx.commit()
-}
-
-fn drop_legacy_tables(tx: &Transaction) -> rusqlite::Result<()> {
-    for table in [
-        "legacy_player_goal_totals",
-        "legacy_tiebreaker_picks",
-        "legacy_processed_matches",
-        "legacy_match_results",
-        "legacy_registrations",
-        "legacy_config",
-    ] {
-        tx.execute(&format!("DROP TABLE IF EXISTS {table}"), [])?;
-    }
     Ok(())
 }

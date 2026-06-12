@@ -1,77 +1,44 @@
 use rusqlite::Connection;
 
-use world_cup_bot::db;
-
-fn legacy_db() -> Connection {
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch(
-        "
-        CREATE TABLE config (id INTEGER PRIMARY KEY CHECK (id = 1), announce_channel_id INTEGER NOT NULL);
-        CREATE TABLE registrations (user_id INTEGER NOT NULL, team_id INTEGER PRIMARY KEY NOT NULL, team_name TEXT NOT NULL);
-        CREATE TABLE match_results (match_id INTEGER PRIMARY KEY NOT NULL, home_team_id INTEGER NOT NULL, away_team_id INTEGER NOT NULL, home_goals INTEGER NOT NULL, away_goals INTEGER NOT NULL);
-        CREATE TABLE processed_matches (match_id INTEGER PRIMARY KEY NOT NULL);
-        CREATE TABLE tiebreaker_picks (user_id INTEGER PRIMARY KEY NOT NULL, player_id INTEGER NOT NULL, player_name TEXT NOT NULL, team_id INTEGER NOT NULL, team_name TEXT NOT NULL);
-        CREATE TABLE player_goal_totals (player_id INTEGER PRIMARY KEY NOT NULL, goals INTEGER NOT NULL, updated_at TEXT NOT NULL);
-
-        INSERT INTO config VALUES (1, 999888777);
-        INSERT INTO registrations VALUES (111, 10, 'Brazil'), (222, 20, 'France');
-        INSERT INTO match_results VALUES (1001, 10, 20, 2, 1);
-        INSERT INTO processed_matches VALUES (1001);
-        INSERT INTO tiebreaker_picks VALUES (111, 501, 'Neymar', 10, 'Brazil');
-        INSERT INTO player_goal_totals VALUES (501, 3, '1700000000');
-        ",
-    )
-    .unwrap();
-    conn
-}
+use world_cup_bot::db::{self, SCHEMA_VERSION};
 
 #[test]
-fn migrate_legacy_preserves_data() {
-    let conn = legacy_db();
+fn fresh_init_seeds_catalog_and_active_pool() {
+    let conn = Connection::open_in_memory().unwrap();
     db::init(&conn).unwrap();
 
-    let channel: i64 = conn
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+
+    let leagues: i64 = conn
+        .query_row("SELECT COUNT(*) FROM leagues", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(leagues, 3);
+
+    let wc_pool: i64 = conn
         .query_row(
-            "SELECT announce_channel_id FROM pools WHERE id = 1",
+            "
+            SELECT p.id
+            FROM pools p
+            JOIN seasons s ON s.id = p.season_id
+            JOIN leagues l ON l.id = s.league_id
+            WHERE l.slug = 'wc' AND s.slug = 'wc-2026'
+            ",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(channel, 999888777);
 
-    let registrations: i64 = conn
-        .query_row("SELECT COUNT(*) FROM registrations WHERE pool_id = 1", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
-    assert_eq!(registrations, 2);
-
-    let goals: i64 = conn
+    let active_pool: i64 = conn
         .query_row(
-            "SELECT home_goals FROM wc_match_results WHERE match_id = 1001",
+            "SELECT active_pool_id FROM bot_config WHERE id = 1",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(goals, 2);
-
-    let player_goals: i64 = conn
-        .query_row(
-            "SELECT goals FROM wc_player_goal_totals WHERE player_id = 501",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(player_goals, 3);
-
-    let legacy_tables: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'legacy_%'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(legacy_tables, 0);
+    assert_eq!(active_pool, wc_pool);
 
     let league_tables: i64 = conn
         .query_row(
@@ -95,13 +62,16 @@ fn migrate_legacy_preserves_data() {
         )
         .unwrap();
     assert_eq!(league_tables, 8);
+}
 
-    let active_pool: i64 = conn
-        .query_row(
-            "SELECT active_pool_id FROM bot_config WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+#[test]
+fn init_is_idempotent() {
+    let conn = Connection::open_in_memory().unwrap();
+    db::init(&conn).unwrap();
+    db::init(&conn).unwrap();
+
+    let pools: i64 = conn
+        .query_row("SELECT COUNT(*) FROM pools", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(active_pool, 1);
+    assert_eq!(pools, 1);
 }
