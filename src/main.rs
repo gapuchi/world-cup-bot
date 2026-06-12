@@ -47,6 +47,7 @@ async fn main() {
             },
             commands: vec![
                 commands::ping(),
+                commands::version(),
                 commands::help(),
                 commands::register(),
                 commands::config(),

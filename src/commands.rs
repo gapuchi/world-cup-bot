@@ -17,6 +17,14 @@ pub async fn ping(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Show the bot version
+#[poise::command(prefix_command, slash_command)]
+pub async fn version(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say(format!("world-cup-bot **v{}**", env!("CARGO_PKG_VERSION")))
+        .await?;
+    Ok(())
+}
+
 /// Re-register slash commands in this server
 #[poise::command(prefix_command, slash_command)]
 pub async fn register(ctx: Context<'_>) -> Result<(), Error> {
