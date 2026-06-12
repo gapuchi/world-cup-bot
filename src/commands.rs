@@ -405,8 +405,7 @@ fn standings_ranks(rows: &[db::StandingRow]) -> Vec<usize> {
 
 fn format_standing_summary(rank: usize, row: &db::StandingRow) -> String {
     format!(
-        "{}. <@{}> — **{}** pts",
-        rank,
+        "**{rank}** · <@{}> — **{}** pts",
         row.user_id,
         row.points,
     )
@@ -517,4 +516,34 @@ pub async fn season(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(prefix_command, slash_command, subcommands("config_channel"))]
 pub async fn config(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::StandingRow;
+
+    fn standing_row(points: i64) -> StandingRow {
+        StandingRow {
+            user_id: 0,
+            points,
+            teams: vec![],
+            tiebreaker_goals: 0,
+            tiebreaker_player: None,
+        }
+    }
+
+    #[test]
+    fn standings_ranks_tied_points_share_rank() {
+        let rows = vec![
+            standing_row(3),
+            standing_row(3),
+            standing_row(0),
+            standing_row(0),
+            standing_row(0),
+            standing_row(0),
+        ];
+
+        assert_eq!(standings_ranks(&rows), vec![1, 1, 3, 3, 3, 3]);
+    }
 }
