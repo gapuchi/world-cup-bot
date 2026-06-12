@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::{
-    db::{Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
+    db::{Pool, Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
     scoring,
 };
 
@@ -33,7 +33,10 @@ pub fn tiebreaker_goals_for_user(
     let Some(pick) = WcTiebreakerPick::get_for_user(conn, pool_id, user_id)? else {
         return Ok(0);
     };
-    WcPlayerGoalTotal::goals_for_player(conn, pick.player_id)
+    let pool = Pool::get(conn, pool_id)?.ok_or_else(|| {
+        rusqlite::Error::QueryReturnedNoRows
+    })?;
+    WcPlayerGoalTotal::goals_for_player(conn, pool.season_id, pick.player_id)
 }
 
 pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<StandingRow>> {
@@ -50,6 +53,11 @@ pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<St
         entry.1.push(registration.team_name);
     }
 
+    let pool = Pool::get(conn, pool_id)?.ok_or_else(|| {
+        rusqlite::Error::QueryReturnedNoRows
+    })?;
+    let season_id = pool.season_id;
+
     let mut rows: Vec<StandingRow> = by_user
         .into_iter()
         .map(|(user_id, (team_ids, team_names))| {
@@ -59,7 +67,8 @@ pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<St
             let tiebreaker_goals = pick
                 .as_ref()
                 .map(|pick| {
-                    WcPlayerGoalTotal::goals_for_player(conn, pick.player_id).unwrap_or(0)
+                    WcPlayerGoalTotal::goals_for_player(conn, season_id, pick.player_id)
+                        .unwrap_or(0)
                 })
                 .unwrap_or(0);
             let mut teams: Vec<(String, i64)> = team_ids
@@ -90,4 +99,21 @@ pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<St
             .then_with(|| a.user_id.cmp(&b.user_id))
     });
     Ok(rows)
+}
+
+pub fn standings_ranks(rows: &[StandingRow]) -> Vec<usize> {
+    let mut ranks = Vec::with_capacity(rows.len());
+    let mut i = 0;
+    while i < rows.len() {
+        let mut j = i;
+        while j + 1 < rows.len() && rows[j].points == rows[j + 1].points {
+            j += 1;
+        }
+        let rank = i + 1;
+        for _ in i..=j {
+            ranks.push(rank);
+        }
+        i = j + 1;
+    }
+    ranks
 }

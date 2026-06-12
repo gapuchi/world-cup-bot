@@ -1,11 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub struct WcTiebreakerPick {
-    pub pool_id: i64,
-    pub user_id: u64,
     pub player_id: i64,
     pub player_name: String,
-    pub team_id: i64,
     pub team_name: String,
 }
 
@@ -50,24 +47,19 @@ impl WcTiebreakerPick {
     ) -> rusqlite::Result<Option<Self>> {
         conn.query_row(
             "
-            SELECT pool_id, user_id, player_id, player_name, team_id, team_name
+            SELECT player_id, player_name, team_name
             FROM wc_tiebreaker_picks
             WHERE pool_id = ?1 AND user_id = ?2
             ",
             params![pool_id, user_id as i64],
-            row_from,
+            |row| {
+                Ok(WcTiebreakerPick {
+                    player_id: row.get(0)?,
+                    player_name: row.get(1)?,
+                    team_name: row.get(2)?,
+                })
+            },
         )
         .optional()
     }
-}
-
-fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<WcTiebreakerPick> {
-    Ok(WcTiebreakerPick {
-        pool_id: row.get(0)?,
-        user_id: row.get::<_, i64>(1)? as u64,
-        player_id: row.get(2)?,
-        player_name: row.get(3)?,
-        team_id: row.get(4)?,
-        team_name: row.get(5)?,
-    })
 }

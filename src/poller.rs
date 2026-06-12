@@ -1,11 +1,13 @@
-use poise::serenity_prelude as serenity;
-use serenity::Mentionable;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use poise::serenity_prelude as serenity;
+use serenity::Mentionable;
+
 use crate::{
     api::{self, Match},
-    db::{Pool, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch},
+    db::{Pool, PoolMeta, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch},
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     standings,
     types::Data,
@@ -26,7 +28,7 @@ pub fn start_poller(data: Arc<Data>, cache_http: Arc<serenity::Http>) {
 
         loop {
             if let Err(error) = poll_once(&data, &cache_http).await {
-                eprintln!("World Cup poll failed: {error:#}");
+                eprintln!("Poll failed: {error:#}");
             }
             tokio::time::sleep(POLL_INTERVAL).await;
         }
@@ -37,48 +39,117 @@ async fn poll_once(
     data: &Data,
     http: &serenity::Http,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let matches = api::fetch_finished_matches(&data.http, &data.api_token).await?;
-
-    let pools = {
+    let pool_metas = {
         let conn = data.db.lock().await;
-        Pool::list_wc(&conn)?
+        Pool::list_all_with_meta(&conn)?
     };
+
+    if pool_metas.is_empty() {
+        eprintln!("Poll complete: no pools configured");
+        return Ok(());
+    }
+
+    let mut by_competition: HashMap<String, Vec<PoolMeta>> = HashMap::new();
+    for meta in pool_metas {
+        by_competition
+            .entry(meta.external_season_id.clone())
+            .or_default()
+            .push(meta);
+    }
+
+    let mut total_matches = 0;
+    let mut total_scored = 0;
+    let mut total_pools = 0;
+
+    for (competition, pools) in by_competition {
+        let league_slug = pools[0].league_slug.clone();
+        match league_slug.as_str() {
+            "wc" => {
+                let (matches, scored, scorers_line) =
+                    poll_wc(data, http, &pools, &competition).await?;
+                total_matches += matches;
+                total_scored += scored;
+                total_pools += pools.len();
+                eprintln!(
+                    "WC poll: {} finished match(es) ({} with scores), {} pool(s){scorers_line}",
+                    matches,
+                    scored,
+                    pools.len(),
+                    scorers_line = scorers_line,
+                );
+            }
+            "nfl" => {
+                eprintln!(
+                    "NFL polling not implemented yet ({} pool(s) skipped)",
+                    pools.len()
+                );
+            }
+            other => {
+                eprintln!(
+                    "No poller for league \"{other}\" ({competition}, {} pool(s) skipped)",
+                    pools.len()
+                );
+            }
+        }
+    }
+
+    eprintln!(
+        "Poll complete: {} finished match(es) ({} with scores), {} pool(s)",
+        total_matches,
+        total_scored,
+        total_pools,
+    );
+
+    Ok(())
+}
+
+async fn poll_wc(
+    data: &Data,
+    http: &serenity::Http,
+    pools: &[PoolMeta],
+    competition: &str,
+) -> Result<(usize, usize, String), Box<dyn std::error::Error + Send + Sync>> {
+    let matches = api::fetch_finished_matches(&data.http, &data.api_token, competition).await?;
 
     {
         let conn = data.db.lock().await;
-        for pool in &pools {
+        for meta in pools {
             for m in &matches {
-                if let Some(result) = wc_match_result_from_api(pool.id, m) {
+                if let Some(result) = wc_match_result_from_api(meta.pool.id, m) {
                     result.upsert(&conn)?;
                 }
             }
         }
     }
 
-    let scorers_updated = match api::fetch_scorers(&data.http, &data.api_token).await {
+    let season_id = pools[0].season_id;
+    let scorers_line = match api::fetch_scorers(&data.http, &data.api_token, competition).await {
         Ok(scorers) => {
             let count = scorers.len();
             let conn = data.db.lock().await;
             let updated_at = chrono_lite_timestamp();
-            if let Err(error) = WcPlayerGoalTotal::upsert_batch(&conn, &scorers, &updated_at) {
+            if let Err(error) =
+                WcPlayerGoalTotal::upsert_batch(&conn, season_id, &scorers, &updated_at)
+            {
                 eprintln!("Failed to cache player goal totals: {error}");
-                None
+                String::new()
             } else {
-                Some(count)
+                format!(", {count} scorers cached")
             }
         }
         Err(error) => {
-            eprintln!("Failed to fetch World Cup scorers: {error}");
-            None
+            eprintln!("Failed to fetch scorers for {competition}: {error}");
+            String::new()
         }
     };
 
-    for pool in &pools {
+    for meta in pools {
         for m in &matches {
-            if let Err(error) = process_match(data, http, pool, m).await {
+            if let Err(error) = process_wc_match(data, http, meta, m).await {
                 eprintln!(
                     "Failed to process match {} for pool {}: {error}",
-                    m.id, pool.id
+                    m.id,
+                    meta.pool.id
                 );
             }
         }
@@ -88,18 +159,8 @@ async fn poll_once(
         .iter()
         .filter(|m| m.full_time_score().is_some())
         .count();
-    let scorers_line = match scorers_updated {
-        Some(count) => format!(", {count} scorers cached"),
-        None => String::new(),
-    };
-    eprintln!(
-        "World Cup poll complete: {} finished match(es) ({} with scores), {} pool(s){scorers_line}",
-        matches.len(),
-        scored_matches,
-        pools.len(),
-    );
 
-    Ok(())
+    Ok((matches.len(), scored_matches, scorers_line))
 }
 
 fn wc_match_result_from_api(pool_id: i64, m: &Match) -> Option<WcMatchResult> {
@@ -112,16 +173,16 @@ fn wc_match_result_from_api(pool_id: i64, m: &Match) -> Option<WcMatchResult> {
         home_goals,
         away_goals,
         stage: m.stage.clone(),
-        finished_at: None,
     })
 }
 
-async fn process_match(
+async fn process_wc_match(
     data: &Data,
     http: &serenity::Http,
-    pool: &Pool,
+    meta: &PoolMeta,
     m: &Match,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let pool = &meta.pool;
     let Some((home_goals, away_goals)) = m.full_time_score() else {
         return Ok(());
     };
@@ -185,7 +246,10 @@ async fn process_match(
     };
 
     let score_line = format!("{home_goals}–{away_goals}");
-    let stage = m.stage.as_deref().unwrap_or("World Cup");
+    let stage = m
+        .stage
+        .as_deref()
+        .unwrap_or(&meta.league_name);
 
     let mut description = format!(
         "**{}** {} **{}**\n\n",

@@ -1,9 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub struct WcProcessedMatch {
-    pub pool_id: i64,
-    pub match_id: i64,
-}
+pub struct WcProcessedMatch;
 
 impl WcProcessedMatch {
     pub fn is_processed(

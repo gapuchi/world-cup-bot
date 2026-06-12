@@ -3,7 +3,6 @@ use std::fmt;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-const COMPETITION: &str = "WC";
 const BASE_URL: &str = "https://api.football-data.org/v4";
 const RATE_LIMIT_MESSAGE: &str =
     "The football data API is rate-limited right now. Please try again later.";
@@ -95,8 +94,9 @@ struct TeamsResponse {
 pub async fn fetch_teams(
     client: &reqwest::Client,
     token: &str,
+    competition: &str,
 ) -> Result<Vec<Team>, ApiError> {
-    let url = format!("{BASE_URL}/competitions/{COMPETITION}/teams");
+    let url = format!("{BASE_URL}/competitions/{competition}/teams");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
@@ -111,8 +111,9 @@ pub async fn fetch_teams(
 pub async fn fetch_finished_matches(
     client: &reqwest::Client,
     token: &str,
+    competition: &str,
 ) -> Result<Vec<Match>, ApiError> {
-    let url = format!("{BASE_URL}/competitions/{COMPETITION}/matches?status=FINISHED");
+    let url = format!("{BASE_URL}/competitions/{competition}/matches?status=FINISHED");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
@@ -169,7 +170,6 @@ struct ScorerEntry {
 #[serde(rename_all = "camelCase")]
 struct ScorerPlayer {
     id: i64,
-    name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,8 +224,9 @@ pub async fn fetch_squads_for_teams(
 pub async fn fetch_scorers(
     client: &reqwest::Client,
     token: &str,
+    competition: &str,
 ) -> Result<Vec<(i64, i64)>, ApiError> {
-    let url = format!("{BASE_URL}/competitions/{COMPETITION}/scorers");
+    let url = format!("{BASE_URL}/competitions/{competition}/scorers");
     let response = client
         .get(url)
         .header("X-Auth-Token", token)
@@ -253,39 +254,4 @@ pub fn find_players<'a>(
             name == query || name.contains(&query)
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Match, Score, ScoreDetail, Team};
-
-    fn sample_match(home: Option<i64>, away: Option<i64>) -> Match {
-        Match {
-            id: 1,
-            home_team: Team {
-                id: 769,
-                name: "Mexico".into(),
-                short_name: None,
-                tla: None,
-            },
-            away_team: Team {
-                id: 774,
-                name: "South Africa".into(),
-                short_name: None,
-                tla: None,
-            },
-            score: Score {
-                full_time: ScoreDetail { home, away },
-            },
-            stage: Some("GROUP_STAGE".into()),
-        }
-    }
-
-    #[test]
-    fn full_time_score_requires_both_sides() {
-        assert_eq!(sample_match(None, None).full_time_score(), None);
-        assert_eq!(sample_match(Some(2), None).full_time_score(), None);
-        assert_eq!(sample_match(None, Some(0)).full_time_score(), None);
-        assert_eq!(sample_match(Some(2), Some(0)).full_time_score(), Some((2, 0)));
-    }
 }

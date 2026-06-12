@@ -1,21 +1,14 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::season::wc_season_id;
-
-pub struct WcPlayerGoalTotal {
-    pub season_id: i64,
-    pub player_id: i64,
-    pub goals: i64,
-    pub updated_at: String,
-}
+pub struct WcPlayerGoalTotal;
 
 impl WcPlayerGoalTotal {
     pub fn upsert_batch(
         conn: &Connection,
+        season_id: i64,
         totals: &[(i64, i64)],
         updated_at: &str,
     ) -> rusqlite::Result<()> {
-        let season_id = wc_season_id(conn)?;
         for (player_id, goals) in totals {
             conn.execute(
                 "
@@ -31,8 +24,11 @@ impl WcPlayerGoalTotal {
         Ok(())
     }
 
-    pub fn goals_for_player(conn: &Connection, player_id: i64) -> rusqlite::Result<i64> {
-        let season_id = wc_season_id(conn)?;
+    pub fn goals_for_player(
+        conn: &Connection,
+        season_id: i64,
+        player_id: i64,
+    ) -> rusqlite::Result<i64> {
         conn.query_row(
             "
             SELECT goals

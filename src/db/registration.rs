@@ -1,9 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::team::Team;
+use super::{season::Season, team};
 
 pub struct Registration {
-    pub pool_id: i64,
     pub user_id: u64,
     pub team_id: i64,
     pub team_name: String,
@@ -17,7 +16,8 @@ impl Registration {
         team_id: i64,
         team_name: &str,
     ) -> rusqlite::Result<()> {
-        Team::upsert_name(conn, team_id, team_name)?;
+        let league_id = Season::league_id_for_pool(conn, pool_id)?;
+        team::upsert_name(conn, league_id, team_id, team_name)?;
         conn.execute(
             "
             INSERT INTO registrations (pool_id, user_id, team_id, team_name)
@@ -58,12 +58,18 @@ impl Registration {
     ) -> rusqlite::Result<Option<Self>> {
         conn.query_row(
             "
-            SELECT pool_id, user_id, team_id, team_name
+            SELECT user_id, team_id, team_name
             FROM registrations
             WHERE pool_id = ?1 AND team_id = ?2
             ",
             params![pool_id, team_id],
-            row_from,
+            |row| {
+                Ok(Registration {
+                    user_id: row.get::<_, i64>(0)? as u64,
+                    team_id: row.get(1)?,
+                    team_name: row.get(2)?,
+                })
+            },
         )
         .optional()
     }
@@ -71,13 +77,19 @@ impl Registration {
     pub fn list_for_pool(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<Self>> {
         let mut stmt = conn.prepare(
             "
-            SELECT pool_id, user_id, team_id, team_name
+            SELECT user_id, team_id, team_name
             FROM registrations
             WHERE pool_id = ?1
             ORDER BY team_name
             ",
         )?;
-        let rows = stmt.query_map(params![pool_id], row_from)?;
+        let rows = stmt.query_map(params![pool_id], |row| {
+            Ok(Registration {
+                user_id: row.get::<_, i64>(0)? as u64,
+                team_id: row.get(1)?,
+                team_name: row.get(2)?,
+            })
+        })?;
         rows.collect()
     }
 
@@ -88,22 +100,19 @@ impl Registration {
     ) -> rusqlite::Result<Vec<Self>> {
         let mut stmt = conn.prepare(
             "
-            SELECT pool_id, user_id, team_id, team_name
+            SELECT user_id, team_id, team_name
             FROM registrations
             WHERE pool_id = ?1 AND user_id = ?2
             ORDER BY team_name
             ",
         )?;
-        let rows = stmt.query_map(params![pool_id, user_id as i64], row_from)?;
+        let rows = stmt.query_map(params![pool_id, user_id as i64], |row| {
+            Ok(Registration {
+                user_id: row.get::<_, i64>(0)? as u64,
+                team_id: row.get(1)?,
+                team_name: row.get(2)?,
+            })
+        })?;
         rows.collect()
     }
-}
-
-fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<Registration> {
-    Ok(Registration {
-        pool_id: row.get(0)?,
-        user_id: row.get::<_, i64>(1)? as u64,
-        team_id: row.get(2)?,
-        team_name: row.get(3)?,
-    })
 }

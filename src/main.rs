@@ -1,16 +1,8 @@
-mod api;
-mod commands;
-mod db;
-mod poller;
-mod scoring;
-mod standings;
-mod types;
+use world_cup_bot::{commands, db, poller, types};
 
 use poise::serenity_prelude as serenity;
 use rusqlite::Connection;
 use std::sync::Arc;
-
-use crate::{poller::start_poller, types::Data};
 
 fn database_path() -> String {
     std::env::var("DATABASE_PATH").unwrap_or_else(|_| "world_cup.db".into())
@@ -31,7 +23,7 @@ async fn main() {
     });
     db::init(&conn).expect("Failed to initialize database");
 
-    let data = Data {
+    let data = types::Data {
         db: Arc::new(tokio::sync::Mutex::new(conn)),
         http: reqwest::Client::new(),
         api_token,
@@ -85,7 +77,7 @@ async fn main() {
                         }
                     }
 
-                    start_poller(Arc::new(bot_data.clone()), ctx.http.clone());
+                    poller::start_poller(Arc::new(bot_data.clone()), ctx.http.clone());
                     Ok(bot_data)
                 })
             }

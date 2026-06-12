@@ -10,7 +10,6 @@ pub struct WcMatchResult {
     pub home_goals: i64,
     pub away_goals: i64,
     pub stage: Option<String>,
-    pub finished_at: Option<String>,
 }
 
 impl WcMatchResult {
@@ -44,12 +43,22 @@ impl WcMatchResult {
     pub fn list_for_pool(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<Self>> {
         let mut stmt = conn.prepare(
             "
-            SELECT pool_id, match_id, home_team_id, away_team_id, home_goals, away_goals, stage, finished_at
+            SELECT pool_id, match_id, home_team_id, away_team_id, home_goals, away_goals, stage
             FROM wc_match_results
             WHERE pool_id = ?1
             ",
         )?;
-        let rows = stmt.query_map(params![pool_id], row_from)?;
+        let rows = stmt.query_map(params![pool_id], |row| {
+            Ok(WcMatchResult {
+                pool_id: row.get(0)?,
+                match_id: row.get(1)?,
+                home_team_id: row.get(2)?,
+                away_team_id: row.get(3)?,
+                home_goals: row.get(4)?,
+                away_goals: row.get(5)?,
+                stage: row.get(6)?,
+            })
+        })?;
         rows.collect()
     }
 
@@ -78,17 +87,4 @@ impl WcMatchResult {
             away_goals: self.away_goals,
         }
     }
-}
-
-fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<WcMatchResult> {
-    Ok(WcMatchResult {
-        pool_id: row.get(0)?,
-        match_id: row.get(1)?,
-        home_team_id: row.get(2)?,
-        away_team_id: row.get(3)?,
-        home_goals: row.get(4)?,
-        away_goals: row.get(5)?,
-        stage: row.get(6)?,
-        finished_at: row.get(7)?,
-    })
 }

@@ -1,3 +1,5 @@
+mod bot_config;
+mod league;
 mod migrate;
 mod pool;
 mod registration;
@@ -10,9 +12,11 @@ mod wc_tiebreaker_pick;
 
 use rusqlite::Connection;
 
-pub use pool::Pool;
+pub use bot_config::BotConfig;
+pub use league::{exists as league_exists, supports_pool as league_supports_pool};
+pub use pool::{Pool, PoolMeta};
 pub use registration::Registration;
-pub use season::SeasonDisplay;
+pub use season::{Season, SeasonDisplay};
 pub use wc_match_result::WcMatchResult;
 pub use wc_player_goal_total::WcPlayerGoalTotal;
 pub use wc_processed_match::WcProcessedMatch;

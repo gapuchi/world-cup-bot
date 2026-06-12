@@ -1,11 +1,28 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::migrate::{WC_LEAGUE_SLUG, WC_SEASON_SLUG};
+use super::{
+    bot_config::BotConfig,
+    season::Season,
+};
 
 pub struct Pool {
     pub id: i64,
     pub season_id: i64,
     pub announce_channel_id: Option<u64>,
+}
+
+pub struct PoolMeta {
+    pub pool: Pool,
+    pub season_id: i64,
+    pub external_season_id: String,
+    pub league_slug: String,
+    pub league_name: String,
+}
+
+pub struct PoolLeague {
+    pub pool: Pool,
+    pub league_slug: String,
+    pub league_name: String,
 }
 
 impl Pool {
@@ -18,46 +35,71 @@ impl Pool {
         .optional()
     }
 
-    pub fn ensure_wc(conn: &Connection) -> rusqlite::Result<Self> {
-        if let Some(id) = wc_pool_id(conn)? {
+    pub fn active(conn: &Connection) -> rusqlite::Result<Self> {
+        let config = BotConfig::get(conn)?.ok_or_else(|| {
+            rusqlite::Error::QueryReturnedNoRows
+        })?;
+        Self::get(conn, config.active_pool_id)?.ok_or_else(|| {
+            rusqlite::Error::QueryReturnedNoRows
+        })
+    }
+
+    pub fn list_all_with_meta(conn: &Connection) -> rusqlite::Result<Vec<PoolMeta>> {
+        let mut stmt = conn.prepare(
+            "
+            SELECT
+                p.id,
+                p.season_id,
+                p.announce_channel_id,
+                s.id,
+                s.external_season_id,
+                l.slug,
+                l.name
+            FROM pools p
+            JOIN seasons s ON s.id = p.season_id
+            JOIN leagues l ON l.id = s.league_id
+            ORDER BY p.id
+            ",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let channel: Option<i64> = row.get(2)?;
+            let external: Option<String> = row.get(4)?;
+            Ok(PoolMeta {
+                pool: Pool {
+                    id: row.get(0)?,
+                    season_id: row.get(1)?,
+                    announce_channel_id: channel.map(|id| id as u64),
+                },
+                season_id: row.get(3)?,
+                external_season_id: external.unwrap_or_default(),
+                league_slug: row.get(5)?,
+                league_name: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_or_create_for_league(
+        conn: &Connection,
+        league_slug: &str,
+    ) -> rusqlite::Result<Self> {
+        let season = Season::get_for_league(conn, league_slug)?.ok_or_else(|| {
+            rusqlite::Error::QueryReturnedNoRows
+        })?;
+
+        if let Some(id) = pool_id_for_season(conn, season.id)? {
             return Self::get(conn, id)?.ok_or_else(|| {
                 rusqlite::Error::QueryReturnedNoRows
             });
         }
 
-        let season_id: i64 = conn.query_row(
-            "
-            SELECT s.id
-            FROM seasons s
-            JOIN leagues l ON l.id = s.league_id
-            WHERE l.slug = ?1 AND s.slug = ?2
-            ",
-            params![WC_LEAGUE_SLUG, WC_SEASON_SLUG],
-            |row| row.get(0),
-        )?;
-
         conn.execute(
             "INSERT INTO pools (season_id) VALUES (?1)",
-            params![season_id],
+            params![season.id],
         )?;
         Self::get(conn, conn.last_insert_rowid())?.ok_or_else(|| {
             rusqlite::Error::QueryReturnedNoRows
         })
-    }
-
-    pub fn list_wc(conn: &Connection) -> rusqlite::Result<Vec<Self>> {
-        let mut stmt = conn.prepare(
-            "
-            SELECT p.id, p.season_id, p.announce_channel_id
-            FROM pools p
-            JOIN seasons s ON s.id = p.season_id
-            JOIN leagues l ON l.id = s.league_id
-            WHERE l.slug = ?1 AND s.slug = ?2
-            ORDER BY p.id
-            ",
-        )?;
-        let rows = stmt.query_map(params![WC_LEAGUE_SLUG, WC_SEASON_SLUG], row_from)?;
-        rows.collect()
     }
 
     pub fn set_announce_channel(
@@ -71,18 +113,37 @@ impl Pool {
         )?;
         Ok(())
     }
+
+    pub fn list_with_league(conn: &Connection) -> rusqlite::Result<Vec<PoolLeague>> {
+        let mut stmt = conn.prepare(
+            "
+            SELECT p.id, p.season_id, p.announce_channel_id, l.slug, l.name
+            FROM pools p
+            JOIN seasons s ON s.id = p.season_id
+            JOIN leagues l ON l.id = s.league_id
+            ORDER BY l.id
+            ",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let channel: Option<i64> = row.get(2)?;
+            Ok(PoolLeague {
+                pool: Pool {
+                    id: row.get(0)?,
+                    season_id: row.get(1)?,
+                    announce_channel_id: channel.map(|id| id as u64),
+                },
+                league_slug: row.get(3)?,
+                league_name: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
 }
 
-fn wc_pool_id(conn: &Connection) -> rusqlite::Result<Option<i64>> {
+fn pool_id_for_season(conn: &Connection, season_id: i64) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
-        "
-        SELECT p.id
-        FROM pools p
-        JOIN seasons s ON s.id = p.season_id
-        JOIN leagues l ON l.id = s.league_id
-        WHERE l.slug = ?1 AND s.slug = ?2
-        ",
-        params![WC_LEAGUE_SLUG, WC_SEASON_SLUG],
+        "SELECT id FROM pools WHERE season_id = ?1",
+        params![season_id],
         |row| row.get(0),
     )
     .optional()
