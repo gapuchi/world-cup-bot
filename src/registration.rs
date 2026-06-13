@@ -1,17 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    db::{Pool, Registration, Season},
+    db::{Pool, Registration, Season, league_competition_code},
     soccar::find_team,
     standings,
     types::{Data, Error},
 };
 
 fn active_competition(conn: &rusqlite::Connection, pool: &Pool) -> rusqlite::Result<String> {
-    let season = Season::get(conn, pool.season_id)?.ok_or_else(|| {
-        rusqlite::Error::QueryReturnedNoRows
-    })?;
-    Ok(season.external_season_id.unwrap_or_else(|| "WC".into()))
+    let league_slug = Season::league_slug_for_pool(conn, pool.id)?;
+    Ok(league_competition_code(&league_slug))
 }
 
 async fn fetch_competition_teams(

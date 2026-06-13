@@ -7,7 +7,7 @@ use serenity::Mentionable;
 
 use crate::{
     api::Match,
-    db::{Pool, PoolMeta, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch},
+    db::{Pool, PoolMeta, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, league_competition_code},
     soccar::full_time_score,
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     standings,
@@ -50,10 +50,10 @@ async fn poll_once(
         return Ok(());
     }
 
-    let mut by_competition: HashMap<String, Vec<PoolMeta>> = HashMap::new();
+    let mut by_league: HashMap<String, Vec<PoolMeta>> = HashMap::new();
     for meta in pool_metas {
-        by_competition
-            .entry(meta.external_season_id.clone())
+        by_league
+            .entry(meta.league_slug.clone())
             .or_default()
             .push(meta);
     }
@@ -62,8 +62,8 @@ async fn poll_once(
     let mut total_scored = 0;
     let mut total_pools = 0;
 
-    for (competition, pools) in by_competition {
-        let league_slug = pools[0].league_slug.clone();
+    for (league_slug, pools) in by_league {
+        let competition = league_competition_code(&league_slug);
         match league_slug.as_str() {
             "wc" => {
                 let (matches, scored, scorers_line) =
@@ -123,7 +123,7 @@ async fn poll_wc(
         }
     }
 
-    let season_id = pools[0].season_id;
+    let season_id = pools[0].pool.season_id;
     let scorers_line = match data.soccar_api().fetch_scorers(competition).await {
         Ok(scorers) => {
             let count = scorers.len();

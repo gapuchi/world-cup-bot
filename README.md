@@ -35,11 +35,12 @@ Slash commands are registered automatically in each guild the bot joins on start
 
 ## Configuration
 
-Each Discord server configures the bot independently. On a **new** server, an admin must enable a league pool first — there is no default until `/config league` has been run in that server.
+Each Discord server configures the bot independently. On a **new** server, an admin must create a season pool first — there is no default until `/config season` has been run in that server.
 
 | Command | Description |
 |---------|-------------|
-| `/config league <slug>` | Set the default league pool for this server (e.g. `wc`; requires Manage Server). Creates the pool on first use. |
+| `/config season <league> <slug> <name>` | Create a season and pool for this server (e.g. `wc`, `wc-2026`, `World Cup 2026`; requires Manage Server). Sets the new pool as default. |
+| `/config league <slug>` | Set the default league pool for this server (e.g. `wc`; requires Manage Server). Pool must already exist. |
 | `/config leagues` | List league pools in this server and which one is default (requires Manage Server) |
 | `/config channel` | Set the announcement channel for the **default** pool in this server (requires Manage Server) |
 
@@ -49,7 +50,7 @@ Use `/season` to see which league and season commands currently target in this s
 
 ### Upgrading an existing deployment
 
-If you already ran the bot on a single server before multi-guild support, your registrations, standings, and config are migrated automatically on startup. No manual steps are required. Additional servers you add later start empty until an admin runs `/config league` in each one.
+If you already ran the bot on a single server before multi-guild support, your registrations, standings, and config are migrated automatically on startup. No manual steps are required. Additional servers you add later start empty until an admin runs `/config season` in each one.
 
 ## Commands
 
@@ -81,7 +82,7 @@ Points are awarded per match based on the result for each claimed team:
 | Draw   | 1      |
 | Loss   | 0      |
 
-The background poller runs every 5 minutes. It processes **all** configured league pools across every server, fetching finished matches and scorer totals from football-data.org for each pool's competition (World Cup pools use the `WC` competition). Only pools with an announcement channel configured receive Discord posts.
+The background poller runs every 5 minutes. It processes **all** configured league pools across every server, fetching finished matches and scorer totals from football-data.org per league (World Cup pools use the `WC` competition, derived from the `wc` league slug). Only pools with an announcement channel configured receive Discord posts.
 
 ### Tie-breaker
 

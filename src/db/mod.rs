@@ -10,7 +10,7 @@ mod wc;
 use rusqlite::Connection;
 
 pub use guild_config::GuildConfig;
-pub use league::{exists as league_exists, supports_pool as league_supports_pool};
+pub use league::{competition_code as league_competition_code, exists as league_exists, supports_pool as league_supports_pool};
 pub use pool::{Pool, PoolMeta};
 pub use registration::Registration;
 pub use season::{Season, SeasonDisplay};

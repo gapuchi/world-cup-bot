@@ -2,7 +2,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{
     guild_config::GuildConfig,
-    season::Season,
 };
 
 pub struct Pool {
@@ -14,8 +13,6 @@ pub struct Pool {
 
 pub struct PoolMeta {
     pub pool: Pool,
-    pub season_id: i64,
-    pub external_season_id: String,
     pub league_slug: String,
     pub league_name: String,
 }
@@ -53,8 +50,6 @@ impl Pool {
                 p.guild_id,
                 p.season_id,
                 p.announce_channel_id,
-                s.id,
-                s.external_season_id,
                 l.slug,
                 l.name
             FROM pools p
@@ -64,32 +59,48 @@ impl Pool {
             ",
         )?;
         let rows = stmt.query_map([], |row| {
-            let external: Option<String> = row.get(5)?;
             Ok(PoolMeta {
                 pool: pool_from_row(row, 0, 1, 2, 3)?,
-                season_id: row.get(4)?,
-                external_season_id: external.unwrap_or_default(),
-                league_slug: row.get(6)?,
-                league_name: row.get(7)?,
+                league_slug: row.get(4)?,
+                league_name: row.get(5)?,
             })
         })?;
         rows.collect()
     }
 
-    pub fn get_or_create_for_league(
+    pub fn get_for_guild_league(
         conn: &Connection,
         guild_id: u64,
         league_slug: &str,
-    ) -> rusqlite::Result<Self> {
-        let season = Season::get_for_league(conn, league_slug)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    ) -> rusqlite::Result<Option<Self>> {
+        conn.query_row(
+            "
+            SELECT p.id, p.guild_id, p.season_id, p.announce_channel_id
+            FROM pools p
+            JOIN seasons s ON s.id = p.season_id
+            JOIN leagues l ON l.id = s.league_id
+            WHERE p.guild_id = ?1 AND l.slug = ?2
+            ORDER BY s.id DESC
+            LIMIT 1
+            ",
+            params![guild_id as i64, league_slug],
+            row_from,
+        )
+        .optional()
+    }
 
-        if let Some(id) = pool_id_for_guild_season(conn, guild_id, season.id)? {
+    pub fn get_or_create_for_season(
+        conn: &Connection,
+        guild_id: u64,
+        season_id: i64,
+    ) -> rusqlite::Result<Self> {
+        if let Some(id) = pool_id_for_guild_season(conn, guild_id, season_id)? {
             return Self::get(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
         }
 
         conn.execute(
             "INSERT INTO pools (guild_id, season_id) VALUES (?1, ?2)",
-            params![guild_id as i64, season.id],
+            params![guild_id as i64, season_id],
         )?;
         Self::get(conn, conn.last_insert_rowid())?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }

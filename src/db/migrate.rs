@@ -1,12 +1,9 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 pub const WC_LEAGUE_SLUG: &str = "wc";
-pub const WC_SEASON_SLUG: &str = "wc-2026";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
-pub const NBA_SEASON_SLUG: &str = "nba-2025-26";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
-pub const NFL_SEASON_SLUG: &str = "nfl-2025";
 
 const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -25,7 +22,6 @@ CREATE TABLE IF NOT EXISTS seasons (
     league_id               INTEGER NOT NULL REFERENCES leagues(id),
     slug                    TEXT NOT NULL UNIQUE,
     name                    TEXT NOT NULL,
-    external_season_id      TEXT,
     starts_at               TEXT,
     ends_at                 TEXT,
     UNIQUE (league_id, slug)
@@ -173,12 +169,16 @@ CREATE TABLE IF NOT EXISTS nfl_player_touchdown_totals (
 ";
 
 pub fn run(conn: &Connection) -> rusqlite::Result<()> {
-    let version = current_version(conn)?;
+    let version = current_version(conn)?.unwrap_or(0);
 
     conn.execute_batch(CREATE_SCHEMA)?;
     seed_catalog(conn)?;
 
-    if version.is_none() {
+    if version < 2 {
+        migrate_v2_drop_external_season_id(conn)?;
+    }
+
+    if version < SCHEMA_VERSION {
         set_version(conn, SCHEMA_VERSION)?;
     }
 
@@ -211,6 +211,25 @@ fn set_version_tx(tx: &Transaction<'_>, version: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migrate_v2_drop_external_season_id(conn: &Connection) -> rusqlite::Result<()> {
+    if column_exists(conn, "seasons", "external_season_id")? {
+        conn.execute("ALTER TABLE seasons DROP COLUMN external_season_id", [])?;
+    }
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let sql = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for name in rows.flatten() {
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn seed_catalog(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "
@@ -219,14 +238,6 @@ fn seed_catalog(conn: &Connection) -> rusqlite::Result<()> {
         ON CONFLICT(id) DO NOTHING
         ",
         [WC_LEAGUE_SLUG],
-    )?;
-    conn.execute(
-        "
-        INSERT INTO seasons (id, league_id, slug, name, external_season_id)
-        VALUES (1, 1, ?1, 'World Cup 2026', 'WC')
-        ON CONFLICT(id) DO NOTHING
-        ",
-        [WC_SEASON_SLUG],
     )?;
     conn.execute(
         "
@@ -243,22 +254,6 @@ fn seed_catalog(conn: &Connection) -> rusqlite::Result<()> {
         ON CONFLICT(id) DO NOTHING
         ",
         [NFL_LEAGUE_SLUG],
-    )?;
-    conn.execute(
-        "
-        INSERT INTO seasons (id, league_id, slug, name, external_season_id)
-        VALUES (2, 2, ?1, 'NBA 2025–26', 'NBA')
-        ON CONFLICT(id) DO NOTHING
-        ",
-        [NBA_SEASON_SLUG],
-    )?;
-    conn.execute(
-        "
-        INSERT INTO seasons (id, league_id, slug, name, external_season_id)
-        VALUES (3, 3, ?1, 'NFL 2025', 'NFL')
-        ON CONFLICT(id) DO NOTHING
-        ",
-        [NFL_SEASON_SLUG],
     )?;
     Ok(())
 }
