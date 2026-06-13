@@ -1,4 +1,4 @@
-mod bot_config;
+mod guild_config;
 mod league;
 mod migrate;
 mod pool;
@@ -9,12 +9,12 @@ mod wc;
 
 use rusqlite::Connection;
 
-pub use bot_config::BotConfig;
+pub use guild_config::GuildConfig;
 pub use league::{exists as league_exists, supports_pool as league_supports_pool};
 pub use pool::{Pool, PoolMeta};
 pub use registration::Registration;
 pub use season::{Season, SeasonDisplay};
-pub use migrate::SCHEMA_VERSION;
+pub use migrate::{LEGACY_GUILD_ID, SCHEMA_VERSION};
 pub use wc::{
     WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, WcTiebreakerPick,
 };

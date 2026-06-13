@@ -5,7 +5,7 @@ use serenity::Mentionable;
 
 use crate::{
     db::{
-        BotConfig, Pool, Registration, Season, SeasonDisplay, WcTiebreakerPick,
+        GuildConfig, Pool, Registration, Season, SeasonDisplay, WcTiebreakerPick,
         league_exists, league_supports_pool,
     },
     soccar::{fetch_squads_for_teams, find_players, find_team},
@@ -13,6 +13,13 @@ use crate::{
     standings::{self, StandingRow},
     types::{Context, Error},
 };
+
+fn guild_id(ctx: &Context<'_>) -> Result<u64, Error> {
+    Ok(ctx
+        .guild_id()
+        .ok_or("This command must be used in a server.")?
+        .get())
+}
 
 fn active_competition(conn: &rusqlite::Connection, pool: &Pool) -> rusqlite::Result<String> {
     let season = Season::get(conn, pool.season_id)?.ok_or_else(|| {
@@ -90,8 +97,9 @@ pub async fn config_league(
 
     let message = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::get_or_create_for_league(&conn, &slug)?;
-        BotConfig::set_active_pool_id(&conn, pool.id)?;
+        let guild_id = guild_id(&ctx)?;
+        let pool = Pool::get_or_create_for_league(&conn, guild_id, &slug)?;
+        GuildConfig::set_default_pool_id(&conn, guild_id, pool.id)?;
         let display = SeasonDisplay::for_pool(&conn, pool.id)?;
         format!(
             "Active league set to **{}** — tracking **{}** (`{}`).",
@@ -112,11 +120,12 @@ pub async fn config_league(
     required_permissions = "MANAGE_GUILD"
 )]
 pub async fn config_leagues(ctx: Context<'_>) -> Result<(), Error> {
-    let (active_id, pools) = {
+    let (default_pool_id, pools) = {
         let conn = ctx.data().db.lock().await;
-        let active_id = BotConfig::get(&conn)?.map(|config| config.active_pool_id);
-        let pools = Pool::list_with_league(&conn)?;
-        (active_id, pools)
+        let guild_id = guild_id(&ctx)?;
+        let default_pool_id = GuildConfig::get(&conn, guild_id)?.map(|config| config.default_pool_id);
+        let pools = Pool::list_with_league(&conn, guild_id)?;
+        (default_pool_id, pools)
     };
 
     if pools.is_empty() {
@@ -128,7 +137,7 @@ pub async fn config_leagues(ctx: Context<'_>) -> Result<(), Error> {
     let lines: Vec<String> = pools
         .iter()
         .map(|entry| {
-            let active = active_id == Some(entry.pool.id);
+            let active = default_pool_id == Some(entry.pool.id);
             let marker = if active { " (active)" } else { "" };
             format!(
                 "**{}** (`{}`){marker}",
@@ -157,7 +166,8 @@ pub async fn config_channel(
 
     {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let guild_id = guild_id(&ctx)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         Pool::set_announce_channel(&conn, pool.id, channel_id)?;
     }
 
@@ -177,10 +187,11 @@ pub async fn claim(
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
+    let guild_id = guild_id(&ctx)?;
     let user_id = ctx.author().id.get();
     let competition = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         active_competition(&conn, &pool)?
     };
     let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
@@ -194,16 +205,16 @@ pub async fn claim(
 
     {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
-        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)? {
-            if existing.user_id != user_id {
-                ctx.say(format!(
-                    "{} is already claimed by <@{}>.",
-                    selected.name, existing.user_id
-                ))
-                .await?;
-                return Ok(());
-            }
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
+        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)?
+            && existing.user_id != user_id
+        {
+            ctx.say(format!(
+                "{} is already claimed by <@{}>.",
+                selected.name, existing.user_id
+            ))
+            .await?;
+            return Ok(());
         }
 
         Registration::upsert(&conn, pool.id, user_id, selected.id, &selected.name)?;
@@ -226,10 +237,11 @@ pub async fn assign(
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
+    let guild_id = guild_id(&ctx)?;
     let user_id = user.user.id.get();
     let competition = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         active_competition(&conn, &pool)?
     };
     let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
@@ -243,16 +255,16 @@ pub async fn assign(
 
     {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
-        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)? {
-            if existing.user_id != user_id {
-                ctx.say(format!(
-                    "**{}** is already claimed by <@{}>.",
-                    selected.name, existing.user_id
-                ))
-                .await?;
-                return Ok(());
-            }
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
+        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)?
+            && existing.user_id != user_id
+        {
+            ctx.say(format!(
+                "**{}** is already claimed by <@{}>.",
+                selected.name, existing.user_id
+            ))
+            .await?;
+            return Ok(());
         }
 
         Registration::upsert(&conn, pool.id, user_id, selected.id, &selected.name)?;
@@ -273,10 +285,11 @@ pub async fn unclaim(
     ctx: Context<'_>,
     #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
 ) -> Result<(), Error> {
+    let guild_id = guild_id(&ctx)?;
     let user_id = ctx.author().id.get();
     let competition = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         active_competition(&conn, &pool)?
     };
     let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
@@ -290,7 +303,7 @@ pub async fn unclaim(
 
     let removed = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         Registration::delete(&conn, pool.id, user_id, selected.id)?
     };
 
@@ -312,10 +325,11 @@ pub async fn pick_player(
 ) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
+    let guild_id = guild_id(&ctx)?;
     let user_id = ctx.author().id.get();
     let registrations = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         Registration::list_for_user(&conn, pool.id, user_id)?
     };
 
@@ -339,7 +353,7 @@ pub async fn pick_player(
         ),
         [selected] => {
             let conn = ctx.data().db.lock().await;
-            let pool = Pool::active(&conn)?;
+            let pool = Pool::default_for_guild(&conn, guild_id)?;
             WcTiebreakerPick::upsert(
                 &conn,
                 pool.id,
@@ -374,10 +388,11 @@ pub async fn pick_player(
 /// Show the teams you have claimed
 #[poise::command(prefix_command, slash_command, guild_only, rename = "team")]
 pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = guild_id(&ctx)?;
     let user_id = ctx.author().id.get();
     let (registrations, pick, tiebreaker_goals) = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         let registrations = Registration::list_for_user(&conn, pool.id, user_id)?;
         let pick = WcTiebreakerPick::get_for_user(&conn, pool.id, user_id)?;
         let tiebreaker_goals = standings::tiebreaker_goals_for_user(&conn, pool.id, user_id)?;
@@ -418,9 +433,10 @@ pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
 /// List all team assignments in this server
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = guild_id(&ctx)?;
     let registrations = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         Registration::list_for_pool(&conn, pool.id)?
     };
 
@@ -462,16 +478,17 @@ pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer().await?;
 
+    let guild_id = guild_id(&ctx)?;
     let competition = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         active_competition(&conn, &pool)?
     };
     let teams = ctx.data().soccar_api().fetch_teams(&competition).await?;
 
     let claimed_team_ids = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         Registration::list_for_pool(&conn, pool.id)?
             .iter()
             .map(|registration| registration.team_id)
@@ -533,9 +550,10 @@ fn format_standing_detail(rank: usize, row: &StandingRow) -> String {
 
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = guild_id(&ctx)?;
     let rows = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         standings::get_standings(&conn, pool.id)?
     };
 
@@ -601,9 +619,10 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
 /// Show the active season
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn season(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = guild_id(&ctx)?;
     let season = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::active(&conn)?;
+        let pool = Pool::default_for_guild(&conn, guild_id)?;
         SeasonDisplay::for_pool(&conn, pool.id)?
     };
 

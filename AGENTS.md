@@ -24,6 +24,7 @@ src/
   db/
     mod.rs          # `init()` + public re-exports (no business logic)
     migrate.rs      # Schema migrations
+    guild_config.rs # Per-guild default pool
     <entity>.rs     # Shared entities (pool, league, registration, …)
     wc/             # World Cup gameplay tables
       match_result.rs
@@ -61,8 +62,30 @@ Refactored to one module per entity. Shared catalog/pool modules live at `db/` r
 
 ### Commands and poller
 
-- **Commands** resolve the **active** pool via `Pool::active()` and read competition from the pool's season (`external_season_id`).
-- **Poller** processes **all** pools, grouped by `external_season_id`, dispatched by `league_slug`.
+- **Commands** resolve the invoking guild's **default** pool via `Pool::default_for_guild(conn, guild_id)` and read competition from the pool's season (`external_season_id`). Pass `ctx.guild_id()` from guild-only commands.
+- **Poller** processes **all** pools (every guild), grouped by `external_season_id`, dispatched by `league_slug`.
+
+## Multi-guild pools
+
+Each Discord guild has independent gameplay data. Tenancy is scoped at **pool** (`pools.guild_id`).
+
+| Concept | Where | Purpose |
+|---------|-------|---------|
+| `guild_id` | `pools` | Which Discord server owns the pool |
+| `default_pool_id` | `guild_config` | Which pool `/claim`, `/standings`, etc. target in that guild |
+| `Pool::default_for_guild()` | `db/pool.rs` | Resolves default pool for a guild |
+| `Pool::get_or_create_for_league(conn, guild_id, slug)` | `db/pool.rs` | Lazy pool creation per guild + league |
+| `Pool::list_with_league(conn, guild_id)` | `db/pool.rs` | Pools configured in one guild |
+| `Pool::list_all_with_meta()` | `db/pool.rs` | All pools for the poller |
+| `/config league <slug>` | `commands.rs` | Set default pool for invoking guild |
+
+Rules:
+
+- `pool_id` remains the stable key for registrations, match results, tie-breakers, and announcements.
+- Fresh guilds have no pools until `/config league` runs (no bootstrap pool on new installs).
+- `leagues`, `seasons`, and season-level player totals (`wc_player_goal_totals`, etc.) stay global — factual API data shared across guilds.
+- v1 → v2 migration assigns existing rows to `LEGACY_GUILD_ID` in `migrate.rs`.
+- Do not hardcode guild or pool ids in commands.
 
 ## Multi-league pools
 
@@ -70,16 +93,15 @@ Introduced in the "Multi League Support" refactor. Key concepts:
 
 | Concept | Where | Purpose |
 |---------|-------|---------|
-| `active_pool_id` | `bot_config` | Which pool `/claim`, `/standings`, etc. target |
-| `Pool::active()` | `db/pool.rs` | Resolves active pool for commands |
-| `Pool::list_all_with_meta()` | `db/pool.rs` | All pools for the poller |
+| `default_pool_id` | `guild_config` | Per-guild default; set by `/config league` |
+| `Pool::get_or_create_for_league()` | `db/pool.rs` | Creates pool for guild + league on demand |
 | `PoolMeta` | `db/pool.rs` | Pool + league slug + `external_season_id` |
-| `/config league <slug>` | `commands.rs` | Switch active pool |
+| `/config league <slug>` | `commands.rs` | Switch default pool within a guild |
 
 Rules:
 
 - `pool_id` remains the stable key for registrations, match results, tie-breakers, and announcements.
-- Switching active league changes which pool commands see; each league keeps its own pool data.
+- Switching default league changes which pool commands see in that guild; each league keeps its own pool data per guild.
 - Poller dispatches by `league_slug` (`"wc"` implemented, `"nfl"` is a no-op seam).
 - Do not hardcode `"WC"` or a fixed pool id outside migration defaults.
 
@@ -121,7 +143,7 @@ Import types from `crate::api`, domain helpers from `crate::soccar`.
 
 - Put search, filtering, or orchestration in `src/api/`.
 - Put HTTP or Discord logic in `src/db/`.
-- Bypass `Pool::active()` in gameplay commands.
+- Bypass `Pool::default_for_guild()` in gameplay commands — always pass the invoking guild id.
 - Re-introduce a monolithic `db/mod.rs` with all SQL inline.
 - Pass raw `reqwest::Client` + token when `soccar_api()` exists.
 

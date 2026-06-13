@@ -2,7 +2,7 @@
 
 Discord bot for sports prediction pools. Each member can claim one or more teams; when a claimed team's match finishes, the bot awards points and posts an announcement in a configured channel.
 
-World Cup (`wc`) is fully supported today. The database also catalogs other leagues (e.g. NFL), but only World Cup pools are playable for now.
+The bot can serve **multiple Discord servers** at once. Each server has its own team claims, standings, announcement channel, and league selection. World Cup (`wc`) is fully supported today. The database also catalogs other leagues (e.g. NFL), but only World Cup pools are playable for now.
 
 ## Setup
 
@@ -35,17 +35,21 @@ Slash commands are registered automatically in each guild the bot joins on start
 
 ## Configuration
 
-On first run the bot defaults to the World Cup pool (`wc`). Admins can inspect or switch pools:
+Each Discord server configures the bot independently. On a **new** server, an admin must enable a league pool first — there is no default until `/config league` has been run in that server.
 
 | Command | Description |
 |---------|-------------|
-| `/config league <slug>` | Set the active league pool (e.g. `wc`; requires Manage Server) |
-| `/config leagues` | List league pools and which one is active (requires Manage Server) |
-| `/config channel` | Set the announcement channel for the **active** pool (requires Manage Server) |
+| `/config league <slug>` | Set the default league pool for this server (e.g. `wc`; requires Manage Server). Creates the pool on first use. |
+| `/config leagues` | List league pools in this server and which one is default (requires Manage Server) |
+| `/config channel` | Set the announcement channel for the **default** pool in this server (requires Manage Server) |
 
-Match announcements are only sent after `/config channel` has been set for that pool. Each pool keeps its own channel, registrations, scores, and tie-breaker picks.
+Match announcements are only sent after `/config channel` has been set for that pool. Each pool keeps its own channel, registrations, scores, and tie-breaker picks. Gameplay commands (`/claim`, `/standings`, etc.) always target the default pool for the server where the command was run.
 
-Use `/season` to see which league and season commands currently target.
+Use `/season` to see which league and season commands currently target in this server.
+
+### Upgrading an existing deployment
+
+If you already ran the bot on a single server before multi-guild support, your registrations, standings, and config are migrated automatically on startup. No manual steps are required. Additional servers you add later start empty until an admin runs `/config league` in each one.
 
 ## Commands
 
@@ -59,7 +63,7 @@ Use `/season` to see which league and season commands currently target.
 | `/teams` | List all team assignments |
 | `/unclaimed` | List teams not yet claimed |
 | `/standings` | Leaderboard (summary embed plus a thread with per-team breakdown) |
-| `/season` | Show the active league and season |
+| `/season` | Show the default league and season for this server |
 | `/help` | List commands (optional: `/help claim` for details) |
 | `/version` | Show the bot version |
 | `/ping` | Health check |
@@ -77,7 +81,7 @@ Points are awarded per match based on the result for each claimed team:
 | Draw   | 1      |
 | Loss   | 0      |
 
-The background poller runs every 5 minutes. It processes **all** configured league pools, fetching finished matches and scorer totals from football-data.org for each pool's competition (World Cup pools use the `WC` competition). Only pools with an announcement channel configured receive Discord posts.
+The background poller runs every 5 minutes. It processes **all** configured league pools across every server, fetching finished matches and scorer totals from football-data.org for each pool's competition (World Cup pools use the `WC` competition). Only pools with an announcement channel configured receive Discord posts.
 
 ### Tie-breaker
 
