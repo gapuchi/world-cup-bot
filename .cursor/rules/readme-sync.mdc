@@ -10,12 +10,12 @@ alwaysApply: false
 
 ## Update README when you change
 
-- Slash commands (add/remove/rename, options, permissions, guild-only)
-- `/config` subcommands or per-pool settings
 - Scoring or tie-breaker rules
 - Poller interval, announcement behavior, or which leagues are polled
 - Setup: env vars (`.env.example`), Discord permissions, invite scopes
-- Release workflow or version/tag conventions
+- Configuration behavior that is not obvious from `/help config` alone
+
+Slash command names, options, and permissions are documented via command docstrings and `/help` — update those in `src/commands/` instead of duplicating tables in README.
 
 ## Skip README for
 
@@ -26,10 +26,10 @@ alwaysApply: false
 
 | Change | README section |
 |--------|----------------|
-| New command | **Commands** table |
-| Config / league pools | **Configuration** |
-| Points or tie-breakers | **Scoring** |
+| New command | Command docstring in `src/commands/` (shown by `/help`) |
+| Config / league pool behavior | **Configuration** |
+| Points or tie-breakers | **Leagues → World Cup** |
 | Env vars | **Environment variables** table + `.env.example` |
-| Dev or release workflow | **Local development** or **Releasing** |
+| Dev workflow | **Local development** |
 
 Keep `AGENTS.md` for architecture and agent conventions only — not duplicate user docs there.
