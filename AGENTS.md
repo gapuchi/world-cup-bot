@@ -104,16 +104,18 @@ Import types from `crate::api`, domain helpers from `crate::soccar`.
 - **Tests for real behavior** — `tests/migrate.rs`, `tests/standings.rs`, `tests/api.rs` (soccar score helpers). Don't add trivial tests.
 - **Errors** — API layer uses `ApiError`; commands use `types::Error` (`Box<dyn Error + Send + Sync>`).
 - **Releases** — version lives in `Cargo.toml`; see `README.md` for `cargo-release` workflow.
+- **README** — keep `README.md` accurate when you change user-facing behavior: commands, config/setup, scoring or tie-breaker rules, environment variables, permissions, or release workflow. User docs live in `README.md`; architecture and agent guidance live here.
 
 ## Common tasks
 
 | Task | Where to change |
 |------|-----------------|
-| New slash command | `commands.rs`, register in `main.rs` |
+| New slash command | `commands.rs`, register in `main.rs`, update `README.md` |
 | New DB table | `db/migrate.rs` + new module under `db/` or `db/<league>/` + re-export in `db/mod.rs` |
 | New football-data endpoint | `api/football_data.rs` + domain logic in `soccar.rs` if needed |
 | New league poller | `poller.rs` match arm on `league_slug` + `db/league.rs` catalog |
-| Leaderboard / tie-breaker rules | `standings.rs`, `scoring.rs` |
+| Leaderboard / tie-breaker rules | `standings.rs`, `scoring.rs`; update `README.md` if rules change |
+| User-facing setup or config | `README.md` (env vars, permissions, `/config` subcommands) |
 
 ## What not to do
 

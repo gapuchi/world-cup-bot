@@ -1,6 +1,8 @@
 # World Cup Bot
 
-Discord bot that tracks the FIFA World Cup for your server. Each member can claim one or more national teams; when any claimed team’s match finishes, the bot awards points and posts an announcement in a configured channel.
+Discord bot for sports prediction pools. Each member can claim one or more teams; when a claimed team's match finishes, the bot awards points and posts an announcement in a configured channel.
+
+World Cup (`wc`) is fully supported today. The database also catalogs other leagues (e.g. NFL), but only World Cup pools are playable for now.
 
 ## Setup
 
@@ -12,8 +14,6 @@ Discord bot that tracks the FIFA World Cup for your server. Each member can clai
    - **Bot permissions:** View Channels, Send Messages, Embed Links, Create Public Threads, Send Messages in Threads
 
    Open the generated URL to add the bot. It must be able to send messages (including embeds) in the channel you set with `/config channel`.
-
-   For `$` prefix commands (e.g. `$claim Brazil`), also enable **Message Content Intent** under **Bot** → **Privileged Gateway Intents**.
 
 ### Local development
 
@@ -33,22 +33,35 @@ Slash commands are registered automatically in each guild the bot joins on start
 | `FOOTBALL_DATA_API_TOKEN` | yes | football-data.org API token |
 | `DATABASE_PATH` | no | SQLite database path (default: `world_cup.db`) |
 
-Prefix commands use `$` as the prefix (e.g. `$claim Brazil`).
+## Configuration
+
+On first run the bot defaults to the World Cup pool (`wc`). Admins can inspect or switch pools:
+
+| Command | Description |
+|---------|-------------|
+| `/config league <slug>` | Set the active league pool (e.g. `wc`; requires Manage Server) |
+| `/config leagues` | List league pools and which one is active (requires Manage Server) |
+| `/config channel` | Set the announcement channel for the **active** pool (requires Manage Server) |
+
+Match announcements are only sent after `/config channel` has been set for that pool. Each pool keeps its own channel, registrations, scores, and tie-breaker picks.
+
+Use `/season` to see which league and season commands currently target.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/config channel` | Set the announcement channel (requires Manage Server) |
 | `/claim` | Claim a nation for yourself by name or code (e.g. Brazil, BRA) |
 | `/assign` | Claim a nation for another member |
-| `/unclaim` | Remove a claimed team by name or code (e.g. Brazil, BRA) |
+| `/unclaim` | Remove a claimed team by name or code |
 | `/team` | Show your claimed teams and tie-breaker player |
 | `/pick-player` | Designate a tie-breaker player from your claimed teams' squads |
 | `/teams` | List all team assignments |
 | `/unclaimed` | List teams not yet claimed |
-| `/standings` | Leaderboard |
+| `/standings` | Leaderboard (summary embed plus a thread with per-team breakdown) |
+| `/season` | Show the active league and season |
 | `/help` | List commands (optional: `/help claim` for details) |
+| `/version` | Show the bot version |
 | `/ping` | Health check |
 | `/register` | Re-register slash commands |
 
@@ -64,7 +77,7 @@ Points are awarded per match based on the result for each claimed team:
 | Draw   | 1      |
 | Loss   | 0      |
 
-The bot polls football-data.org every 5 minutes for finished World Cup (`WC`) matches and scorer totals. Announcements are only sent after `/config channel` has been set.
+The background poller runs every 5 minutes. It processes **all** configured league pools, fetching finished matches and scorer totals from football-data.org for each pool's competition (World Cup pools use the `WC` competition). Only pools with an announcement channel configured receive Discord posts.
 
 ### Tie-breaker
 
@@ -74,7 +87,7 @@ Player squads and scorer data require a football-data.org plan that includes dee
 
 ## Releasing
 
-`Cargo.toml` is the source of truth for the version. Git tags must match exactly (`v0.1.0` ↔ `version = "0.1.0"`). The release workflow rejects mismatched tags.
+`Cargo.toml` is the source of truth for the version. Git tags must match exactly (`v0.1.4` ↔ `version = "0.1.4"`). The release workflow rejects mismatched tags.
 
 Install [cargo-release](https://github.com/crate-ci/cargo-release) once:
 
@@ -90,11 +103,11 @@ cargo release patch --execute
 git push origin main --follow-tags
 ```
 
-Pushing a `v*` tag triggers GitHub Actions to run tests, build Linux and macOS binaries with Nix, and publish a GitHub Release with attached archives.
-
-First release at the current version (no bump):
+Or use the [just](https://github.com/casey/just) recipes:
 
 ```bash
-cargo release release --execute
-git push origin main --follow-tags
+just release-dry patch
+just release patch
 ```
+
+Pushing a `v*` tag triggers GitHub Actions to run tests, build Linux and macOS binaries with Nix, and publish a GitHub Release with attached archives.

@@ -1,0 +1,35 @@
+---
+description: Keep README.md in sync with user-facing behavior
+globs: src/commands.rs,src/main.rs,src/scoring.rs,src/standings.rs,src/poller.rs,.env.example,README.md
+alwaysApply: false
+---
+
+# README sync
+
+`README.md` is the user-facing doc. Update it in the **same change** when you alter behavior users see or operators configure.
+
+## Update README when you change
+
+- Slash commands (add/remove/rename, options, permissions, guild-only)
+- `/config` subcommands or per-pool settings
+- Scoring or tie-breaker rules
+- Poller interval, announcement behavior, or which leagues are polled
+- Setup: env vars (`.env.example`), Discord permissions, invite scopes
+- Release workflow or version/tag conventions
+
+## Skip README for
+
+- Internal refactors with no user-visible change
+- DB schema, API client, or test-only changes (unless they change commands or scoring)
+
+## What to update
+
+| Change | README section |
+|--------|----------------|
+| New command | **Commands** table |
+| Config / league pools | **Configuration** |
+| Points or tie-breakers | **Scoring** |
+| Env vars | **Environment variables** table + `.env.example` |
+| Dev or release workflow | **Local development** or **Releasing** |
+
+Keep `AGENTS.md` for architecture and agent conventions only — not duplicate user docs there.
