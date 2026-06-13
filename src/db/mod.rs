@@ -18,5 +18,6 @@ pub use wc::{
 };
 
 pub fn init(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
     migrate::run(conn)
 }

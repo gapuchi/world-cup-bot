@@ -231,3 +231,151 @@ fn migration_v3_merges_pool_into_season() {
     assert_eq!(goals_for_pool_1, 3);
     assert_eq!(goals_for_pool_2, 3);
 }
+
+#[test]
+fn migration_v3_merges_legacy_single_guild_pool() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        INSERT INTO schema_version (version) VALUES (2);
+        CREATE TABLE leagues (
+            id INTEGER PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            sport TEXT NOT NULL
+        );
+        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
+        CREATE TABLE seasons (
+            id INTEGER PRIMARY KEY,
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            external_season_id TEXT,
+            UNIQUE (league_id, slug)
+        );
+        INSERT INTO seasons (id, league_id, slug, name, external_season_id)
+        VALUES (1, 1, 'wc-2026', 'World Cup 2026', 'WC');
+        CREATE TABLE pools (
+            id INTEGER PRIMARY KEY,
+            season_id INTEGER NOT NULL REFERENCES seasons(id),
+            announce_channel_id INTEGER,
+            UNIQUE (season_id)
+        );
+        INSERT INTO pools (id, season_id, announce_channel_id) VALUES (1, 1, 999);
+        CREATE TABLE registrations (
+            pool_id INTEGER NOT NULL REFERENCES pools(id),
+            user_id INTEGER NOT NULL,
+            team_id INTEGER NOT NULL,
+            team_name TEXT NOT NULL,
+            PRIMARY KEY (pool_id, team_id)
+        );
+        INSERT INTO registrations (pool_id, user_id, team_id, team_name) VALUES (1, 42, 7, 'Brazil');
+        ",
+    )
+    .unwrap();
+
+    db::init(&conn).unwrap();
+
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+
+    let season = Season::get(&conn, 1).unwrap().unwrap();
+    assert_eq!(season.guild_id, 527_288_150_515_646_484);
+    assert_eq!(season.announce_channel_id, Some(999));
+
+    let default_season_id: i64 = conn
+        .query_row(
+            "SELECT default_season_id FROM guild_config WHERE guild_id = ?1",
+            [527_288_150_515_646_484_i64],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(default_season_id, 1);
+
+    let team_name: String = conn
+        .query_row(
+            "SELECT team_name FROM registrations WHERE season_id = 1 AND team_id = 7",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(team_name, "Brazil");
+}
+
+#[test]
+fn migration_v4_rebinds_foreign_keys_after_pool_table_drop() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        INSERT INTO schema_version (version) VALUES (3);
+        CREATE TABLE leagues (
+            id INTEGER PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            sport TEXT NOT NULL
+        );
+        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
+        CREATE TABLE seasons (
+            id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            slug TEXT NOT NULL,
+            name TEXT NOT NULL,
+            announce_channel_id INTEGER,
+            UNIQUE (guild_id, league_id, slug)
+        );
+        INSERT INTO seasons (id, guild_id, league_id, slug, name, announce_channel_id)
+        VALUES (1, 111, 1, 'wc-2026', 'World Cup 2026', 999);
+        CREATE TABLE pools (id INTEGER PRIMARY KEY);
+        INSERT INTO pools (id) VALUES (1);
+        CREATE TABLE wc_match_results (
+            pool_id INTEGER NOT NULL REFERENCES pools(id),
+            match_id INTEGER NOT NULL,
+            home_team_id INTEGER NOT NULL,
+            away_team_id INTEGER NOT NULL,
+            home_goals INTEGER NOT NULL,
+            away_goals INTEGER NOT NULL,
+            stage TEXT,
+            finished_at TEXT,
+            PRIMARY KEY (pool_id, match_id)
+        );
+        ALTER TABLE wc_match_results RENAME COLUMN pool_id TO season_id;
+        DROP TABLE pools;
+        ",
+    )
+    .unwrap();
+
+    db::init(&conn).unwrap();
+
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+
+    let referenced_table: String = conn
+        .query_row(
+            "SELECT [table] FROM pragma_foreign_key_list('wc_match_results') LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(referenced_table, "seasons");
+
+    use world_cup_bot::db::WcMatchResult;
+    WcMatchResult {
+        season_id: 1,
+        match_id: 42,
+        home_team_id: 10,
+        away_team_id: 11,
+        home_goals: 2,
+        away_goals: 1,
+        stage: Some("Group".into()),
+    }
+    .upsert(&conn)
+    .unwrap();
+}

@@ -1,9 +1,12 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
+
+/// Single-guild installs created before multi-guild support did not store guild id on pools.
+const LEGACY_GUILD_ID: i64 = 527_288_150_515_646_484;
 
 const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -182,6 +185,10 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         migrate_v3_merge_season_and_pool(conn)?;
     }
 
+    if version < 4 {
+        migrate_v4_rebind_season_foreign_keys(conn)?;
+    }
+
     conn.execute_batch(CREATE_SCHEMA)?;
 
     if version < SCHEMA_VERSION {
@@ -228,11 +235,22 @@ fn migrate_v2_drop_external_season_id(conn: &Connection) -> rusqlite::Result<()>
 
 fn migrate_v3_merge_season_and_pool(conn: &Connection) -> rusqlite::Result<()> {
     if !table_exists(conn, "pools")? {
+        if tables_still_use_pool_id(conn)? {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "pools table is missing but gameplay tables still reference pool_id; restore from backup or recreate the database".into(),
+            ));
+        }
         return Ok(());
     }
 
     conn.execute("PRAGMA foreign_keys = OFF", [])?;
     let tx = conn.unchecked_transaction()?;
+
+    let legacy_guild_id = legacy_guild_id_for_migration(&tx)?;
+    if !column_exists(&tx, "pools", "guild_id")? {
+        upgrade_legacy_pools(&tx, legacy_guild_id)?;
+    }
+    migrate_bot_config_to_guild_config(&tx, legacy_guild_id)?;
 
     tx.execute("ALTER TABLE seasons RENAME TO seasons_legacy", [])?;
 
@@ -262,30 +280,16 @@ fn migrate_v3_merge_season_and_pool(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
 
-    tx.execute(
-        "ALTER TABLE guild_config RENAME COLUMN default_pool_id TO default_season_id",
-        [],
-    )?;
-
-    for table in [
-        "registrations",
-        "wc_match_results",
-        "wc_processed_matches",
-        "wc_tiebreaker_picks",
-        "nba_match_results",
-        "nba_processed_games",
-        "nba_tiebreaker_picks",
-        "nfl_match_results",
-        "nfl_processed_games",
-        "nfl_tiebreaker_picks",
-    ] {
-        if table_exists(&tx, table)? && column_exists(&tx, table, "pool_id")? {
-            tx.execute(
-                &format!("ALTER TABLE {table} RENAME COLUMN pool_id TO season_id"),
-                [],
-            )?;
-        }
+    if table_exists(&tx, "guild_config")?
+        && column_exists(&tx, "guild_config", "default_pool_id")?
+    {
+        tx.execute(
+            "ALTER TABLE guild_config RENAME COLUMN default_pool_id TO default_season_id",
+            [],
+        )?;
     }
+
+    rebind_pool_scoped_tables(&tx)?;
 
     if table_exists(&tx, "wc_player_goal_totals")? {
         migrate_player_totals_to_per_season(&tx, "wc_player_goal_totals", "goals")?;
@@ -309,21 +313,530 @@ fn migrate_v3_merge_season_and_pool(conn: &Connection) -> rusqlite::Result<()> {
     tx.execute("DROP TABLE pools", [])?;
     tx.execute("DROP TABLE seasons_legacy", [])?;
 
-    tx.execute_batch(
-        "
-        CREATE TABLE guild_config_new (
-            guild_id                INTEGER PRIMARY KEY,
-            default_season_id       INTEGER NOT NULL REFERENCES seasons(id)
-        );
-        INSERT INTO guild_config_new (guild_id, default_season_id)
-        SELECT guild_id, default_season_id FROM guild_config;
-        DROP TABLE guild_config;
-        ALTER TABLE guild_config_new RENAME TO guild_config;
-        ",
-    )?;
+    if table_exists(&tx, "guild_config")? {
+        tx.execute_batch(
+            "
+            CREATE TABLE guild_config_new (
+                guild_id                INTEGER PRIMARY KEY,
+                default_season_id       INTEGER NOT NULL REFERENCES seasons(id)
+            );
+            INSERT INTO guild_config_new (guild_id, default_season_id)
+            SELECT guild_id, default_season_id FROM guild_config;
+            DROP TABLE guild_config;
+            ALTER TABLE guild_config_new RENAME TO guild_config;
+            ",
+        )?;
+    } else {
+        tx.execute_batch(
+            "
+            CREATE TABLE guild_config (
+                guild_id                INTEGER PRIMARY KEY,
+                default_season_id       INTEGER NOT NULL REFERENCES seasons(id)
+            );
+            INSERT INTO guild_config (guild_id, default_season_id)
+            SELECT guild_id, MIN(id) FROM seasons GROUP BY guild_id;
+            ",
+        )?;
+    }
 
     tx.commit()?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
+    Ok(())
+}
+
+fn migrate_v4_rebind_season_foreign_keys(conn: &Connection) -> rusqlite::Result<()> {
+    if !tables_reference_pools(conn)? {
+        return Ok(());
+    }
+
+    conn.execute("PRAGMA foreign_keys = OFF", [])?;
+    let tx = conn.unchecked_transaction()?;
+    rebind_pool_scoped_tables(&tx)?;
+    tx.execute("DROP INDEX IF EXISTS idx_registrations_pool_user", [])?;
+    if table_exists(&tx, "registrations")? {
+        tx.execute(
+            "
+            CREATE INDEX IF NOT EXISTS idx_registrations_season_user
+                ON registrations (season_id, user_id)
+            ",
+            [],
+        )?;
+    }
+    tx.commit()?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    Ok(())
+}
+
+fn tables_reference_pools(conn: &Connection) -> rusqlite::Result<bool> {
+    for table in pool_scoped_tables() {
+        if foreign_key_references_table(conn, table, "pools")? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn pool_scoped_tables() -> &'static [&'static str] {
+    &[
+        "registrations",
+        "wc_match_results",
+        "wc_processed_matches",
+        "wc_tiebreaker_picks",
+        "nba_match_results",
+        "nba_processed_games",
+        "nba_tiebreaker_picks",
+        "nfl_match_results",
+        "nfl_processed_games",
+        "nfl_tiebreaker_picks",
+    ]
+}
+
+fn foreign_key_references_table(
+    conn: &Connection,
+    table: &str,
+    referenced: &str,
+) -> rusqlite::Result<bool> {
+    if !table_exists(conn, table)? {
+        return Ok(false);
+    }
+    let sql = format!("PRAGMA foreign_key_list({table})");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(2))?;
+    for ref_table in rows.flatten() {
+        if ref_table == referenced {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn scope_column(conn: &Connection, table: &str) -> rusqlite::Result<&'static str> {
+    if column_exists(conn, table, "pool_id")? {
+        Ok("pool_id")
+    } else {
+        Ok("season_id")
+    }
+}
+
+fn needs_pool_scope_rebind(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
+    Ok(column_exists(conn, table, "pool_id")?
+        || foreign_key_references_table(conn, table, "pools")?)
+}
+
+fn rebind_pool_scoped_tables(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    rebind_registrations(tx)?;
+    rebind_wc_match_results(tx)?;
+    rebind_wc_processed_matches(tx)?;
+    rebind_wc_tiebreaker_picks(tx)?;
+    rebind_nba_match_results(tx)?;
+    rebind_nba_processed_games(tx)?;
+    rebind_nba_tiebreaker_picks(tx)?;
+    rebind_nfl_match_results(tx)?;
+    rebind_nfl_processed_games(tx)?;
+    rebind_nfl_tiebreaker_picks(tx)?;
+    Ok(())
+}
+
+fn rebind_registrations(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "registrations")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "registrations")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE registrations_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            user_id                 INTEGER NOT NULL,
+            team_id                 INTEGER NOT NULL,
+            team_name               TEXT NOT NULL,
+            PRIMARY KEY (season_id, team_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO registrations_season_fk (season_id, user_id, team_id, team_name)
+            SELECT {scope}, user_id, team_id, team_name FROM registrations
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch("DROP TABLE registrations; ALTER TABLE registrations_season_fk RENAME TO registrations;")?;
+    Ok(())
+}
+
+fn rebind_wc_match_results(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "wc_match_results")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "wc_match_results")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE wc_match_results_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            match_id                INTEGER NOT NULL,
+            home_team_id            INTEGER NOT NULL,
+            away_team_id            INTEGER NOT NULL,
+            home_goals              INTEGER NOT NULL,
+            away_goals              INTEGER NOT NULL,
+            stage                   TEXT,
+            finished_at             TEXT,
+            PRIMARY KEY (season_id, match_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO wc_match_results_season_fk (
+                season_id, match_id, home_team_id, away_team_id, home_goals, away_goals, stage, finished_at
+            )
+            SELECT {scope}, match_id, home_team_id, away_team_id, home_goals, away_goals, stage, finished_at
+            FROM wc_match_results
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE wc_match_results; ALTER TABLE wc_match_results_season_fk RENAME TO wc_match_results;",
+    )?;
+    Ok(())
+}
+
+fn rebind_wc_processed_matches(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "wc_processed_matches")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "wc_processed_matches")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE wc_processed_matches_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            match_id                INTEGER NOT NULL,
+            PRIMARY KEY (season_id, match_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO wc_processed_matches_season_fk (season_id, match_id)
+            SELECT {scope}, match_id FROM wc_processed_matches
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE wc_processed_matches; ALTER TABLE wc_processed_matches_season_fk RENAME TO wc_processed_matches;",
+    )?;
+    Ok(())
+}
+
+fn rebind_wc_tiebreaker_picks(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "wc_tiebreaker_picks")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "wc_tiebreaker_picks")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE wc_tiebreaker_picks_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            user_id                 INTEGER NOT NULL,
+            player_id               INTEGER NOT NULL,
+            player_name             TEXT NOT NULL,
+            team_id                 INTEGER NOT NULL,
+            team_name               TEXT NOT NULL,
+            PRIMARY KEY (season_id, user_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO wc_tiebreaker_picks_season_fk (
+                season_id, user_id, player_id, player_name, team_id, team_name
+            )
+            SELECT {scope}, user_id, player_id, player_name, team_id, team_name
+            FROM wc_tiebreaker_picks
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE wc_tiebreaker_picks; ALTER TABLE wc_tiebreaker_picks_season_fk RENAME TO wc_tiebreaker_picks;",
+    )?;
+    Ok(())
+}
+
+fn rebind_nba_match_results(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "nba_match_results")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "nba_match_results")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE nba_match_results_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            game_id                 INTEGER NOT NULL,
+            home_team_id            INTEGER NOT NULL,
+            away_team_id            INTEGER NOT NULL,
+            home_points             INTEGER NOT NULL,
+            away_points             INTEGER NOT NULL,
+            finished_at             TEXT,
+            PRIMARY KEY (season_id, game_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO nba_match_results_season_fk (
+                season_id, game_id, home_team_id, away_team_id, home_points, away_points, finished_at
+            )
+            SELECT {scope}, game_id, home_team_id, away_team_id, home_points, away_points, finished_at
+            FROM nba_match_results
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE nba_match_results; ALTER TABLE nba_match_results_season_fk RENAME TO nba_match_results;",
+    )?;
+    Ok(())
+}
+
+fn rebind_nba_processed_games(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "nba_processed_games")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "nba_processed_games")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE nba_processed_games_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            game_id                 INTEGER NOT NULL,
+            PRIMARY KEY (season_id, game_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO nba_processed_games_season_fk (season_id, game_id)
+            SELECT {scope}, game_id FROM nba_processed_games
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE nba_processed_games; ALTER TABLE nba_processed_games_season_fk RENAME TO nba_processed_games;",
+    )?;
+    Ok(())
+}
+
+fn rebind_nba_tiebreaker_picks(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "nba_tiebreaker_picks")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "nba_tiebreaker_picks")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE nba_tiebreaker_picks_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            user_id                 INTEGER NOT NULL,
+            player_id               INTEGER NOT NULL,
+            player_name             TEXT NOT NULL,
+            team_id                 INTEGER NOT NULL,
+            team_name               TEXT NOT NULL,
+            PRIMARY KEY (season_id, user_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO nba_tiebreaker_picks_season_fk (
+                season_id, user_id, player_id, player_name, team_id, team_name
+            )
+            SELECT {scope}, user_id, player_id, player_name, team_id, team_name
+            FROM nba_tiebreaker_picks
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE nba_tiebreaker_picks; ALTER TABLE nba_tiebreaker_picks_season_fk RENAME TO nba_tiebreaker_picks;",
+    )?;
+    Ok(())
+}
+
+fn rebind_nfl_match_results(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "nfl_match_results")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "nfl_match_results")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE nfl_match_results_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            game_id                 INTEGER NOT NULL,
+            home_team_id            INTEGER NOT NULL,
+            away_team_id            INTEGER NOT NULL,
+            home_score              INTEGER NOT NULL,
+            away_score              INTEGER NOT NULL,
+            finished_at             TEXT,
+            PRIMARY KEY (season_id, game_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO nfl_match_results_season_fk (
+                season_id, game_id, home_team_id, away_team_id, home_score, away_score, finished_at
+            )
+            SELECT {scope}, game_id, home_team_id, away_team_id, home_score, away_score, finished_at
+            FROM nfl_match_results
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE nfl_match_results; ALTER TABLE nfl_match_results_season_fk RENAME TO nfl_match_results;",
+    )?;
+    Ok(())
+}
+
+fn rebind_nfl_processed_games(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "nfl_processed_games")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "nfl_processed_games")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE nfl_processed_games_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            game_id                 INTEGER NOT NULL,
+            PRIMARY KEY (season_id, game_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO nfl_processed_games_season_fk (season_id, game_id)
+            SELECT {scope}, game_id FROM nfl_processed_games
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE nfl_processed_games; ALTER TABLE nfl_processed_games_season_fk RENAME TO nfl_processed_games;",
+    )?;
+    Ok(())
+}
+
+fn rebind_nfl_tiebreaker_picks(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if !needs_pool_scope_rebind(tx, "nfl_tiebreaker_picks")? {
+        return Ok(());
+    }
+    let scope = scope_column(tx, "nfl_tiebreaker_picks")?;
+    tx.execute_batch(
+        "
+        CREATE TABLE nfl_tiebreaker_picks_season_fk (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            user_id                 INTEGER NOT NULL,
+            player_id               INTEGER NOT NULL,
+            player_name             TEXT NOT NULL,
+            team_id                 INTEGER NOT NULL,
+            team_name               TEXT NOT NULL,
+            PRIMARY KEY (season_id, user_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        &format!(
+            "
+            INSERT INTO nfl_tiebreaker_picks_season_fk (
+                season_id, user_id, player_id, player_name, team_id, team_name
+            )
+            SELECT {scope}, user_id, player_id, player_name, team_id, team_name
+            FROM nfl_tiebreaker_picks
+            "
+        ),
+        [],
+    )?;
+    tx.execute_batch(
+        "DROP TABLE nfl_tiebreaker_picks; ALTER TABLE nfl_tiebreaker_picks_season_fk RENAME TO nfl_tiebreaker_picks;",
+    )?;
+    Ok(())
+}
+
+fn tables_still_use_pool_id(conn: &Connection) -> rusqlite::Result<bool> {
+    Ok(table_exists(conn, "registrations")?
+        && column_exists(conn, "registrations", "pool_id")?)
+}
+
+fn legacy_guild_id_for_migration(_conn: &Connection) -> rusqlite::Result<i64> {
+    if let Ok(raw) = std::env::var("LEGACY_GUILD_ID") {
+        return raw.parse::<i64>().map_err(|_| {
+            rusqlite::Error::InvalidParameterName(format!(
+                "LEGACY_GUILD_ID must be a Discord guild id, got {raw:?}"
+            ))
+        });
+    }
+    Ok(LEGACY_GUILD_ID)
+}
+
+fn upgrade_legacy_pools(tx: &Transaction<'_>, guild_id: i64) -> rusqlite::Result<()> {
+    tx.execute_batch(
+        "
+        CREATE TABLE pools_new (
+            id                      INTEGER PRIMARY KEY,
+            guild_id                INTEGER NOT NULL,
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            announce_channel_id     INTEGER,
+            UNIQUE (guild_id, season_id)
+        );
+        ",
+    )?;
+    tx.execute(
+        "
+        INSERT INTO pools_new (id, guild_id, season_id, announce_channel_id)
+        SELECT id, ?1, season_id, announce_channel_id FROM pools
+        ",
+        [guild_id],
+    )?;
+    tx.execute("DROP TABLE pools", [])?;
+    tx.execute("ALTER TABLE pools_new RENAME TO pools", [])?;
+    Ok(())
+}
+
+fn migrate_bot_config_to_guild_config(
+    tx: &Transaction<'_>,
+    guild_id: i64,
+) -> rusqlite::Result<()> {
+    if !table_exists(tx, "bot_config")? || table_exists(tx, "guild_config")? {
+        return Ok(());
+    }
+
+    tx.execute_batch(
+        "
+        CREATE TABLE guild_config (
+            guild_id                INTEGER PRIMARY KEY,
+            default_pool_id         INTEGER NOT NULL REFERENCES pools(id)
+        );
+        ",
+    )?;
+    tx.execute(
+        "
+        INSERT INTO guild_config (guild_id, default_pool_id)
+        SELECT ?1, active_pool_id FROM bot_config WHERE id = 1
+        ",
+        [guild_id],
+    )?;
+    tx.execute("DROP TABLE bot_config", [])?;
     Ok(())
 }
 
