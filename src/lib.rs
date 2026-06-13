@@ -2,6 +2,7 @@ pub mod api;
 pub mod soccar;
 pub mod commands;
 pub mod db;
+pub mod draft;
 pub mod poller;
 pub mod registration;
 pub mod scoring;

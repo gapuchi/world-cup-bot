@@ -109,4 +109,12 @@ impl Registration {
         })?;
         rows.collect()
     }
+
+    pub fn delete_all_for_season(conn: &Connection, season_id: i64) -> rusqlite::Result<()> {
+        conn.execute(
+            "DELETE FROM registrations WHERE season_id = ?1",
+            params![season_id],
+        )?;
+        Ok(())
+    }
 }

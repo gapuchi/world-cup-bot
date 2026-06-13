@@ -34,7 +34,7 @@ New behavior: use case first → thin handler in `commands/` → `commands::all(
 
 ```rust
 // Adapter calls use case; use case owns API + DB + rules
-let message = registration::claim_for_user(ctx.data(), guild_id, user_id, &team).await?;
+let (message, _) = registration::pick_for_user(ctx.data(), guild_id, user_id, &team).await?;
 ctx.say(message).await?;
 ```
 

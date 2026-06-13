@@ -17,6 +17,7 @@ SQLite persistence for Discord prediction seasons. A **season** is one Discord g
 ### Gameplay (per season)
 
 - **Registration** — A user claims a team in a season. One owner per team (`season_id`, `team_id`).
+- **Draft** — Turn-based snake draft state for a season (`drafts`, `draft_participants`). One draft row per season while active or complete.
 - **Match result** — Finished game scores and metadata (`wc_match_results`, `nba_match_results`, `nfl_match_results`).
 - **Processed flag** — Idempotency marker for games the poller already announced and scored (`wc_processed_matches`, `nba_processed_games`, `nfl_processed_games`).
 - **Tiebreaker pick** — One player pick per user per season for standings tie-breaks (`wc_tiebreaker_picks`, `nba_tiebreaker_picks`, `nfl_tiebreaker_picks`).
@@ -44,6 +45,8 @@ erDiagram
     seasons ||--o{ nfl_tiebreaker_picks : has
     seasons ||--o{ nfl_player_touchdown_totals : has
     seasons ||--o| guild_config : "default for guild"
+    seasons ||--o| drafts : has
+    drafts ||--o{ draft_participants : has
 
     leagues {
         int id PK
@@ -68,5 +71,17 @@ erDiagram
         int user_id
         int team_id PK
         text team_name
+    }
+    drafts {
+        int season_id PK,FK
+        text status
+        int rounds
+        int current_pick
+        int total_picks
+    }
+    draft_participants {
+        int season_id PK,FK
+        int user_id PK
+        int pick_order
     }
 ```

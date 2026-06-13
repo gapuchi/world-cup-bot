@@ -1,3 +1,4 @@
+mod draft;
 mod guild_config;
 mod league;
 mod migrate;
@@ -8,6 +9,7 @@ mod wc;
 
 use rusqlite::Connection;
 
+pub use draft::{Draft, DraftParticipant, DraftStatus};
 pub use guild_config::GuildConfig;
 pub use league::{competition_code as league_competition_code, exists as league_exists, supports_season as league_supports_season};
 pub use registration::Registration;

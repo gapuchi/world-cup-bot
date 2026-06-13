@@ -8,25 +8,16 @@ use crate::{
 
 use super::helpers::guild_id;
 
-/// Claim a World Cup nation for yourself
-#[poise::command(prefix_command, slash_command, guild_only)]
-pub async fn claim(
-    ctx: Context<'_>,
-    #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
-) -> Result<(), Error> {
-    ctx.defer().await?;
-    let guild_id = guild_id(&ctx)?;
-    let message =
-        registration::claim_for_user(ctx.data(), guild_id, ctx.author().id.get(), &team).await?;
-    ctx.say(message).await?;
-    Ok(())
-}
-
-/// Claim a World Cup nation for another member
-#[poise::command(prefix_command, slash_command, guild_only)]
+/// Assign a World Cup nation to a member during an active draft
+#[poise::command(
+    prefix_command,
+    slash_command,
+    guild_only,
+    required_permissions = "MANAGE_GUILD"
+)]
 pub async fn assign(
     ctx: Context<'_>,
-    #[description = "Member to claim the team for"] user: serenity::Member,
+    #[description = "Member to assign the team to"] user: serenity::Member,
     #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
 ) -> Result<(), Error> {
     ctx.defer().await?;
@@ -43,18 +34,25 @@ pub async fn assign(
     Ok(())
 }
 
-/// Remove a claimed team
-#[poise::command(prefix_command, slash_command, guild_only)]
-pub async fn unclaim(
+/// Remove a team assignment from a member during an active draft
+#[poise::command(
+    prefix_command,
+    slash_command,
+    guild_only,
+    required_permissions = "MANAGE_GUILD"
+)]
+pub async fn unassign(
     ctx: Context<'_>,
+    #[description = "Member to unassign the team from"] user: serenity::Member,
     #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
 ) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
-    let message = registration::unclaim_for_user(
+    let message = registration::unassign_for_user(
         ctx.data(),
         guild_id,
-        ctx.author().id.get(),
+        user.user.id.get(),
         &team,
+        &user.mention().to_string(),
     )
     .await?;
     ctx.say(message).await?;
@@ -84,7 +82,7 @@ pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
     match registration::list_season_teams(ctx.data(), guild_id).await? {
         SeasonTeamsList::Empty => {
-            ctx.say("No teams claimed yet. Use `/claim` to pick a nation.")
+            ctx.say("No teams assigned yet. An admin can start a draft with `/draft start`.")
                 .await?;
         }
         SeasonTeamsList::ByUser(assignments) => {
@@ -106,7 +104,7 @@ pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// List World Cup teams that have not been claimed yet
+/// List World Cup teams that have not been assigned yet
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer().await?;
@@ -114,11 +112,11 @@ pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
     match registration::unclaimed_teams(ctx.data(), guild_id).await? {
         UnclaimedTeams::AllClaimed => {
-            ctx.say("Every World Cup team has been claimed.").await?;
+            ctx.say("Every World Cup team has been assigned.").await?;
         }
         UnclaimedTeams::Available(names) => {
             let embed = serenity::CreateEmbed::default()
-                .title("Unclaimed World Cup teams")
+                .title("Unassigned World Cup teams")
                 .description(
                     names
                         .iter()

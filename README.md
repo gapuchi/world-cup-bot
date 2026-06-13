@@ -1,8 +1,8 @@
 # World Cup Bot
 
-Discord bot for sports prediction pools. Each member can claim one or more teams; when a claimed team's match finishes, the bot awards points and posts an announcement in a configured channel.
+Discord bot for sports prediction pools. Each member is assigned nations through a snake draft; when an assigned team's match finishes, the bot awards points and posts an announcement in a configured channel.
 
-The bot can serve **multiple Discord servers** at once. Each server has its own team claims, standings, announcement channel, and league selection. World Cup is fully supported today; NFL and NBA pools are coming soon.
+The bot can serve **multiple Discord servers** at once. Each server has its own draft, team assignments, standings, announcement channel, and league selection. World Cup is fully supported today; NFL and NBA pools are coming soon.
 
 ## Setup
 
@@ -43,15 +43,17 @@ Use `/season` to see which league and season commands currently target in this s
 
 ## Commands
 
-Run `/help` to list all commands, or `/help <command>` for details (e.g. `/help claim`).
+Run `/help` to list all commands, or `/help <command>` for details (e.g. `/help draft`).
 
 ## Leagues
 
 ### World Cup (`wc`)
 
-Each member claims one or more nations. Each nation can only be claimed by one person at a time; a person can claim multiple nations. When a claimed team's match finishes, the bot awards points and posts an announcement in the configured channel.
+Admins run a **snake draft** to assign nations. Each nation can only be assigned to one person; a person can hold multiple nations (one per draft round). When an assigned team's match finishes, the bot awards points and posts an announcement in the configured channel.
 
-**Scoring** — points per match based on the result for each claimed team:
+**Draft** — an admin starts with `/draft start` (participants + round count). Pick order is randomized. Only the member on the clock can use `/draft pick`. Admins can `/draft skip`, `/assign`, `/unassign`, or `/draft cancel` (cancelling removes all assignments). When all picks are in, rosters lock.
+
+**Scoring** — points per match based on the result for each assigned team:
 
 | Result | Points |
 |--------|--------|
@@ -59,7 +61,7 @@ Each member claims one or more nations. Each nation can only be claimed by one p
 | Draw   | 1      |
 | Loss   | 0      |
 
-**Tie-breaker** — if two players finish with the same total points, the one whose designated player has scored more goals in the tournament ranks higher. Use `/pick-player` to choose one player from your claimed teams' squads. If you don't pick, tie-breaker goals count as 0. Tie-breaker goals do not add to your score — they only break ties on the leaderboard.
+**Tie-breaker** — if two players finish with the same total points, the one whose designated player has scored more goals in the tournament ranks higher. Use `/pick-player` to choose one player from your assigned teams' squads. If you don't pick, tie-breaker goals count as 0. Tie-breaker goals do not add to your score — they only break ties on the leaderboard.
 
 The background poller runs every 5 minutes, fetching finished matches and scorer totals from football-data.org (`WC` competition). Player squads and scorer data require a football-data.org plan that includes deep data (squads and goal scorers).
 

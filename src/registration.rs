@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    db::{Season, Registration, league_competition_code},
+    db::{Draft, DraftStatus, Registration, Season, league_competition_code},
+    draft::{self, TurnChange},
     soccar::find_team,
     standings,
     types::{Data, Error},
@@ -30,36 +31,102 @@ fn team_not_found_message(team_query: &str) -> String {
     )
 }
 
-pub async fn claim_for_user(
+fn no_active_draft_message() -> String {
+    "No active draft. An admin can start one with `/draft start`.".into()
+}
+
+fn draft_finished_message() -> String {
+    "The draft is finished. Rosters are locked.".into()
+}
+
+fn not_your_turn_message(current_picker: u64) -> String {
+    format!("It's <@{current_picker}>'s turn. Wait for `/draft pick`.")
+}
+
+async fn require_active_draft(data: &Data, guild_id: u64) -> Result<(), String> {
+    let conn = data.db.lock().await;
+    let season = Season::default_for_guild(&conn, guild_id).map_err(|error| error.to_string())?;
+    match Draft::get(&conn, season.id).map_err(|error| error.to_string())? {
+        None => Err(no_active_draft_message()),
+        Some(draft) if draft.status == DraftStatus::Complete => Err(draft_finished_message()),
+        Some(draft) if draft.status == DraftStatus::Active => {
+            if draft.current_pick >= draft.total_picks {
+                Err(draft_finished_message())
+            } else {
+                Ok(())
+            }
+        }
+        Some(_) => Err(no_active_draft_message()),
+    }
+}
+
+async fn register_team(
     data: &Data,
     guild_id: u64,
     user_id: u64,
     team_query: &str,
-) -> Result<String, Error> {
+) -> Result<Result<crate::api::Team, String>, Error> {
     let api_teams = fetch_competition_teams(data, guild_id).await?;
     let Some(selected) = find_team(&api_teams, team_query) else {
-        return Ok(team_not_found_message(team_query));
+        return Ok(Err(team_not_found_message(team_query)));
     };
 
+    let conn = data.db.lock().await;
+    let season = Season::default_for_guild(&conn, guild_id)?;
+    if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
+        && existing.user_id != user_id
+    {
+        return Ok(Err(format!(
+            "**{}** is already taken by <@{}>.",
+            selected.name, existing.user_id
+        )));
+    }
+
+    Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
+    Ok(Ok(selected.clone()))
+}
+
+pub async fn pick_for_user(
+    data: &Data,
+    guild_id: u64,
+    user_id: u64,
+    team_query: &str,
+) -> Result<(String, Option<TurnChange>), Error> {
     {
         let conn = data.db.lock().await;
         let season = Season::default_for_guild(&conn, guild_id)?;
-        if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
-            && existing.user_id != user_id
-        {
-            return Ok(format!(
-                "{} is already claimed by <@{}>.",
-                selected.name, existing.user_id
-            ));
+        let Some(draft) = Draft::get(&conn, season.id)? else {
+            return Ok((no_active_draft_message(), None));
+        };
+        match draft.status {
+            DraftStatus::Complete => return Ok((draft_finished_message(), None)),
+            DraftStatus::Active => {}
         }
-
-        Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
+        let Some(current_picker) = Draft::current_picker(&conn, season.id)? else {
+            return Ok((draft_finished_message(), None));
+        };
+        if user_id != current_picker {
+            return Ok((not_your_turn_message(current_picker), None));
+        }
     }
 
-    Ok(format!(
-        "You've claimed **{}**. You'll earn points when they play.",
+    let selected = match register_team(data, guild_id, user_id, team_query).await? {
+        Ok(team) => team,
+        Err(message) => return Ok((message, None)),
+    };
+
+    let turn_change = draft::advance_after_pick(data, guild_id).await?;
+    let mut message = format!(
+        "You picked **{}**. You'll earn points when they play.",
         selected.name
-    ))
+    );
+    if turn_change.completed {
+        message.push_str("\n\nDraft complete — all picks are in. Rosters are locked.");
+    } else if let Some(next_picker) = turn_change.next_picker {
+        message.push_str(&format!("\n\nNext up: <@{next_picker}>."));
+    }
+
+    Ok((message, Some(turn_change)))
 }
 
 pub async fn assign_for_user(
@@ -69,38 +136,32 @@ pub async fn assign_for_user(
     team_query: &str,
     assignee_mention: &str,
 ) -> Result<String, Error> {
-    let api_teams = fetch_competition_teams(data, guild_id).await?;
-    let Some(selected) = find_team(&api_teams, team_query) else {
-        return Ok(team_not_found_message(team_query));
-    };
-
-    {
-        let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
-            && existing.user_id != user_id
-        {
-            return Ok(format!(
-                "**{}** is already claimed by <@{}>.",
-                selected.name, existing.user_id
-            ));
-        }
-
-        Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
+    if let Err(message) = require_active_draft(data, guild_id).await {
+        return Ok(message);
     }
 
+    let selected = match register_team(data, guild_id, user_id, team_query).await? {
+        Ok(team) => team,
+        Err(message) => return Ok(message),
+    };
+
     Ok(format!(
-        "**{}** has been claimed by {}.",
+        "**{}** assigned to {}.",
         selected.name, assignee_mention
     ))
 }
 
-pub async fn unclaim_for_user(
+pub async fn unassign_for_user(
     data: &Data,
     guild_id: u64,
     user_id: u64,
     team_query: &str,
+    assignee_mention: &str,
 ) -> Result<String, Error> {
+    if let Err(message) = require_active_draft(data, guild_id).await {
+        return Ok(message);
+    }
+
     let api_teams = fetch_competition_teams(data, guild_id).await?;
     let Some(selected) = find_team(&api_teams, team_query) else {
         return Ok(team_not_found_message(team_query));
@@ -113,9 +174,9 @@ pub async fn unclaim_for_user(
     };
 
     Ok(if removed {
-        "That team has been unclaimed.".into()
+        format!("**{}** unassigned from {}.", selected.name, assignee_mention)
     } else {
-        "You haven't claimed that team. Use `/team` to see your teams.".into()
+        format!("{assignee_mention} doesn't have **{}**.", selected.name)
     })
 }
 
@@ -134,7 +195,7 @@ pub async fn my_team_message(
     };
 
     let mut message = match registrations.as_slice() {
-        [] => "You haven't claimed any teams yet. Use `/claim` to pick one.".into(),
+        [] => "You don't have any teams yet. They'll show up here during a draft.".into(),
         [registration] => format!("You're representing **{}**.", registration.team_name),
         _ => {
             let teams: Vec<&str> = registrations

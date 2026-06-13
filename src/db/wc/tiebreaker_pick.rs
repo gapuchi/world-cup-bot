@@ -78,4 +78,12 @@ impl WcTiebreakerPick {
         )?;
         Ok(())
     }
+
+    pub fn delete_all_for_season(conn: &Connection, season_id: i64) -> rusqlite::Result<()> {
+        conn.execute(
+            "DELETE FROM wc_tiebreaker_picks WHERE season_id = ?1",
+            params![season_id],
+        )?;
+        Ok(())
+    }
 }

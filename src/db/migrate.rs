@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
@@ -57,6 +57,22 @@ CREATE TABLE IF NOT EXISTS registrations (
 
 CREATE INDEX IF NOT EXISTS idx_registrations_season_user
     ON registrations (season_id, user_id);
+
+CREATE TABLE IF NOT EXISTS drafts (
+    season_id               INTEGER PRIMARY KEY REFERENCES seasons(id),
+    status                  TEXT NOT NULL,
+    rounds                  INTEGER NOT NULL,
+    current_pick            INTEGER NOT NULL DEFAULT 0,
+    total_picks             INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS draft_participants (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    user_id                 INTEGER NOT NULL,
+    pick_order              INTEGER NOT NULL,
+    PRIMARY KEY (season_id, user_id),
+    UNIQUE (season_id, pick_order)
+);
 
 CREATE TABLE IF NOT EXISTS wc_match_results (
     season_id               INTEGER NOT NULL REFERENCES seasons(id),
@@ -189,6 +205,10 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         migrate_v4_rebind_season_foreign_keys(conn)?;
     }
 
+    if version < 5 {
+        migrate_v5_draft_tables(conn)?;
+    }
+
     conn.execute_batch(CREATE_SCHEMA)?;
 
     if version < SCHEMA_VERSION {
@@ -221,6 +241,29 @@ fn set_version_tx(tx: &Transaction<'_>, version: i64) -> rusqlite::Result<()> {
     }
     tx.execute("DELETE FROM schema_version", [])?;
     tx.execute("INSERT INTO schema_version (version) VALUES (?1)", [version])?;
+    Ok(())
+}
+
+fn migrate_v5_draft_tables(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS drafts (
+            season_id               INTEGER PRIMARY KEY REFERENCES seasons(id),
+            status                  TEXT NOT NULL,
+            rounds                  INTEGER NOT NULL,
+            current_pick            INTEGER NOT NULL DEFAULT 0,
+            total_picks             INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS draft_participants (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            user_id                 INTEGER NOT NULL,
+            pick_order              INTEGER NOT NULL,
+            PRIMARY KEY (season_id, user_id),
+            UNIQUE (season_id, pick_order)
+        );
+        ",
+    )?;
     Ok(())
 }
 

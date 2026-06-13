@@ -19,7 +19,7 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     if rows.is_empty() {
-        ctx.say("No standings yet — claim teams with `/claim` first.")
+        ctx.say("No standings yet — complete a draft with `/draft start` first.")
             .await?;
         return Ok(());
     }
