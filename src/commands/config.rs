@@ -2,7 +2,7 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    db::{GuildConfig, Pool, Season, SeasonDisplay, league_exists, league_supports_pool},
+    db::{GuildConfig, Season, SeasonDisplay, league_exists, league_supports_season},
     types::{Context, Error},
 };
 
@@ -30,7 +30,7 @@ pub async fn config_league(
         }
     }
 
-    if !league_supports_pool(&slug) {
+    if !league_supports_season(&slug) {
         ctx.say(format!("League \"{slug}\" is not supported yet.")).await?;
         return Ok(());
     }
@@ -38,15 +38,15 @@ pub async fn config_league(
     let message = {
         let conn = ctx.data().db.lock().await;
         let guild_id = guild_id(&ctx)?;
-        let Some(pool) = Pool::get_for_guild_league(&conn, guild_id, &slug)? else {
+        let Some(season) = Season::get_for_guild_league(&conn, guild_id, &slug)? else {
             ctx.say(format!(
-                "No pool for \"{slug}\" in this server. Use `/config season` to create one."
+                "No season for \"{slug}\" in this server. Use `/config season` to create one."
             ))
             .await?;
             return Ok(());
         };
-        GuildConfig::set_default_pool_id(&conn, guild_id, pool.id)?;
-        let display = SeasonDisplay::for_pool(&conn, pool.id)?;
+        GuildConfig::set_default_season_id(&conn, guild_id, season.id)?;
+        let display = SeasonDisplay::for_season(&conn, season.id)?;
         format!(
             "Active league set to **{}** — tracking **{}** (`{}`).",
             display.league_name, display.name, display.slug
@@ -57,7 +57,7 @@ pub async fn config_league(
     Ok(())
 }
 
-/// List configured league pools
+/// List configured seasons
 #[poise::command(
     prefix_command,
     slash_command,
@@ -66,28 +66,29 @@ pub async fn config_league(
     required_permissions = "MANAGE_GUILD"
 )]
 pub async fn config_leagues(ctx: Context<'_>) -> Result<(), Error> {
-    let (default_pool_id, pools) = {
+    let (default_season_id, seasons) = {
         let conn = ctx.data().db.lock().await;
         let guild_id = guild_id(&ctx)?;
-        let default_pool_id = GuildConfig::get(&conn, guild_id)?.map(|config| config.default_pool_id);
-        let pools = Pool::list_with_league(&conn, guild_id)?;
-        (default_pool_id, pools)
+        let default_season_id =
+            GuildConfig::get(&conn, guild_id)?.map(|config| config.default_season_id);
+        let seasons = Season::list_with_league(&conn, guild_id)?;
+        (default_season_id, seasons)
     };
 
-    if pools.is_empty() {
-        ctx.say("No league pools configured. Use `/config season` to create one.")
+    if seasons.is_empty() {
+        ctx.say("No seasons configured. Use `/config season` to create one.")
             .await?;
         return Ok(());
     }
 
-    let lines: Vec<String> = pools
+    let lines: Vec<String> = seasons
         .iter()
         .map(|entry| {
-            let active = default_pool_id == Some(entry.pool.id);
+            let active = default_season_id == Some(entry.season.id);
             let marker = if active { " (active)" } else { "" };
             format!(
-                "**{}** (`{}`){marker}",
-                entry.league_name, entry.league_slug
+                "**{}** — **{}** (`{}`){marker}",
+                entry.league_name, entry.season.name, entry.season.slug
             )
         })
         .collect();
@@ -113,8 +114,8 @@ pub async fn config_channel(
     {
         let conn = ctx.data().db.lock().await;
         let guild_id = guild_id(&ctx)?;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        Pool::set_announce_channel(&conn, pool.id, channel_id)?;
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        Season::set_announce_channel(&conn, season.id, channel_id)?;
     }
 
     ctx.say(format!(
@@ -125,7 +126,7 @@ pub async fn config_channel(
     Ok(())
 }
 
-/// Create a season and pool for this server
+/// Create a season for this server
 #[poise::command(
     prefix_command,
     slash_command,
@@ -156,7 +157,7 @@ pub async fn config_season(
         }
     }
 
-    if !league_supports_pool(&league_slug) {
+    if !league_supports_season(&league_slug) {
         ctx.say(format!("League \"{league_slug}\" is not supported yet.")).await?;
         return Ok(());
     }
@@ -166,15 +167,15 @@ pub async fn config_season(
         let guild_id = guild_id(&ctx)?;
         let season = Season::get_or_create(
             &conn,
+            guild_id,
             &league_slug,
             &season_slug,
             season_name,
         )?;
-        let pool = Pool::get_or_create_for_season(&conn, guild_id, season.id)?;
-        GuildConfig::set_default_pool_id(&conn, guild_id, pool.id)?;
-        let display = SeasonDisplay::for_pool(&conn, pool.id)?;
+        GuildConfig::set_default_season_id(&conn, guild_id, season.id)?;
+        let display = SeasonDisplay::for_season(&conn, season.id)?;
         format!(
-            "Created pool for **{}** — tracking **{}** (`{}`). Set `/config channel` for announcements.",
+            "Created season for **{}** — tracking **{}** (`{}`). Set `/config channel` for announcements.",
             display.league_name, display.name, display.slug
         )
     };

@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    db::{Pool, Registration, Season, league_competition_code},
+    db::{Season, Registration, league_competition_code},
     soccar::find_team,
     standings,
     types::{Data, Error},
 };
 
-fn active_competition(conn: &rusqlite::Connection, pool: &Pool) -> rusqlite::Result<String> {
-    let league_slug = Season::league_slug_for_pool(conn, pool.id)?;
+fn active_competition(conn: &rusqlite::Connection, season: &Season) -> rusqlite::Result<String> {
+    let league_slug = Season::league_slug_for(conn, season.id)?;
     Ok(league_competition_code(&league_slug))
 }
 
@@ -18,8 +18,8 @@ async fn fetch_competition_teams(
 ) -> Result<Vec<crate::api::Team>, Error> {
     let competition = {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        active_competition(&conn, &pool)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        active_competition(&conn, &season)?
     };
     Ok(data.soccar_api().fetch_teams(&competition).await?)
 }
@@ -43,8 +43,8 @@ pub async fn claim_for_user(
 
     {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
             && existing.user_id != user_id
         {
             return Ok(format!(
@@ -53,7 +53,7 @@ pub async fn claim_for_user(
             ));
         }
 
-        Registration::upsert(&conn, pool.id, user_id, selected.id, &selected.name)?;
+        Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
     }
 
     Ok(format!(
@@ -76,8 +76,8 @@ pub async fn assign_for_user(
 
     {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        if let Some(existing) = Registration::get_by_team(&conn, pool.id, selected.id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
             && existing.user_id != user_id
         {
             return Ok(format!(
@@ -86,7 +86,7 @@ pub async fn assign_for_user(
             ));
         }
 
-        Registration::upsert(&conn, pool.id, user_id, selected.id, &selected.name)?;
+        Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
     }
 
     Ok(format!(
@@ -108,8 +108,8 @@ pub async fn unclaim_for_user(
 
     let removed = {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        Registration::delete(&conn, pool.id, user_id, selected.id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        Registration::delete(&conn, season.id, user_id, selected.id)?
     };
 
     Ok(if removed {
@@ -126,10 +126,10 @@ pub async fn my_team_message(
 ) -> Result<String, Error> {
     let (registrations, pick, tiebreaker_goals) = {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        let registrations = Registration::list_for_user(&conn, pool.id, user_id)?;
-        let pick = crate::db::WcTiebreakerPick::get_for_user(&conn, pool.id, user_id)?;
-        let tiebreaker_goals = standings::tiebreaker_goals_for_user(&conn, pool.id, user_id)?;
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        let registrations = Registration::list_for_user(&conn, season.id, user_id)?;
+        let pick = crate::db::WcTiebreakerPick::get_for_user(&conn, season.id, user_id)?;
+        let tiebreaker_goals = standings::tiebreaker_goals_for_user(&conn, season.id, user_id)?;
         (registrations, pick, tiebreaker_goals)
     };
 
@@ -157,20 +157,20 @@ pub async fn my_team_message(
     Ok(message)
 }
 
-pub enum PoolTeamsList {
+pub enum SeasonTeamsList {
     Empty,
     ByUser(Vec<(u64, Vec<String>)>),
 }
 
-pub async fn list_pool_teams(data: &Data, guild_id: u64) -> Result<PoolTeamsList, Error> {
+pub async fn list_season_teams(data: &Data, guild_id: u64) -> Result<SeasonTeamsList, Error> {
     let registrations = {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        Registration::list_for_pool(&conn, pool.id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        Registration::list_for_season(&conn, season.id)?
     };
 
     if registrations.is_empty() {
-        return Ok(PoolTeamsList::Empty);
+        return Ok(SeasonTeamsList::Empty);
     }
 
     let mut by_user: HashMap<u64, Vec<String>> = HashMap::new();
@@ -189,7 +189,7 @@ pub async fn list_pool_teams(data: &Data, guild_id: u64) -> Result<PoolTeamsList
         .map(|user_id| (user_id, by_user.remove(&user_id).unwrap_or_default()))
         .collect();
 
-    Ok(PoolTeamsList::ByUser(assignments))
+    Ok(SeasonTeamsList::ByUser(assignments))
 }
 
 pub enum UnclaimedTeams {
@@ -202,8 +202,8 @@ pub async fn unclaimed_teams(data: &Data, guild_id: u64) -> Result<UnclaimedTeam
 
     let claimed_team_ids = {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        Registration::list_for_pool(&conn, pool.id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        Registration::list_for_season(&conn, season.id)?
             .iter()
             .map(|registration| registration.team_id)
             .collect::<HashSet<_>>()

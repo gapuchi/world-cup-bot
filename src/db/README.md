@@ -1,92 +1,49 @@
 # Database schema
 
-SQLite persistence for Discord prediction pools. Schema lives in `migrate.rs`; accessors live in one module per entity.
+SQLite persistence for Discord prediction seasons. A **season** is one Discord guild tracking one league competition; all gameplay data is scoped by `season_id`.
 
-## Scoping
+## Entities
 
-Two keys organize most data:
+### Catalog
 
-| Scope | Key | Used for |
-|-------|-----|----------|
-| **Pool** | `pool_id` | Per-guild gameplay: registrations, match results, processed flags, tie-breaker picks |
-| **Season** | `season_id` | League-wide player stat totals (shared across all guild pools in that season) |
+- **League** — Sport catalog entry (`wc`, `nba`, `nfl`). Seeded at migration.
+- **Team** — Team name lookup keyed by `(league_id, team_id)`. Upserted when users register.
 
-A **pool** is one Discord guild playing one **season**. Commands resolve the guild’s active pool via `GuildConfig` → `Pool::default_for_guild`.
+### Guild configuration
 
-## Entity groups
+- **Season** — One guild’s tracking of a league competition (`guild_id`, `league_id`, slug, name, announce channel).
+- **GuildConfig** — Maps a Discord guild to its default season for slash commands.
 
-### Catalog (shared, seeded)
+### Gameplay (per season)
 
-```
-leagues ──< seasons
-   │
-   └──< teams
-```
+- **Registration** — A user claims a team in a season. One owner per team (`season_id`, `team_id`).
+- **Match result** — Finished game scores and metadata (`wc_match_results`, `nba_match_results`, `nfl_match_results`).
+- **Processed flag** — Idempotency marker for games the poller already announced and scored (`wc_processed_matches`, `nba_processed_games`, `nfl_processed_games`).
+- **Tiebreaker pick** — One player pick per user per season for standings tie-breaks (`wc_tiebreaker_picks`, `nba_tiebreaker_picks`, `nfl_tiebreaker_picks`).
+- **Player stat total** — Cached player stats for tie-breakers (`wc_player_goal_totals`, `nba_player_points_totals`, `nfl_player_touchdown_totals`). Keyed by `(season_id, player_id)`.
 
-| Entity | Table | Role |
-|--------|-------|------|
-| **League** | `leagues` | Sport catalog entry (`wc`, `nba`, `nfl`). Seeded at migration. |
-| **Season** | `seasons` | A competition year/edition under a league. Created via `/config season`. |
-| **Team** | `teams` | Team names keyed by `(league_id, team_id)`. Upserted when users register. |
+World Cup accessors live under `db/wc/`. NBA and NFL tables exist in the schema for future leagues.
 
-### Pool configuration
-
-```
-seasons ──< pools ──< guild_config (default_pool_id)
-```
-
-| Entity | Table | Role |
-|--------|-------|------|
-| **Pool** | `pools` | One guild’s instance of a season (`guild_id` + `season_id`). Holds `announce_channel_id`. |
-| **GuildConfig** | `guild_config` | Maps a Discord guild to its default `pool_id` for slash commands. |
-
-### Gameplay (per pool)
-
-```
-pools ──< registrations
-pools ──< {wc\|nba\|nfl}_match_results
-pools ──< {wc\|nba\|nfl}_processed_{matches\|games}
-pools ──< {wc\|nba\|nfl}_tiebreaker_picks
-```
-
-| Entity | Table | Role |
-|--------|-------|------|
-| **Registration** | `registrations` | User claims a team in a pool. PK `(pool_id, team_id)` — one owner per team. |
-| **Match result** | `wc_match_results`, `nba_match_results`, `nfl_match_results` | Finished game scores and metadata, keyed by pool. |
-| **Processed flag** | `wc_processed_matches`, `nba_processed_games`, `nfl_processed_games` | Idempotency: which games the poller already announced/scored. |
-| **Tiebreaker pick** | `wc_tiebreaker_picks`, `nba_tiebreaker_picks`, `nfl_tiebreaker_picks` | One player pick per user per pool for standings tie-breaks. |
-
-### Player totals (per season)
-
-```
-seasons ──< {wc\|nba\|nfl}_player_{goal\|points\|touchdown}_totals
-```
-
-| Entity | Table | Role |
-|--------|-------|------|
-| **Player stat total** | `wc_player_goal_totals`, `nba_player_points_totals`, `nfl_player_touchdown_totals` | Cached league-wide player stats for tie-breakers. Keyed by `(season_id, player_id)`. |
-
-## Full relationship diagram
+## Relationships
 
 ```mermaid
 erDiagram
     leagues ||--o{ seasons : has
     leagues ||--o{ teams : has
-    seasons ||--o{ pools : has
+    seasons ||--o{ registrations : has
+    seasons ||--o{ wc_match_results : has
+    seasons ||--o{ wc_processed_matches : has
+    seasons ||--o{ wc_tiebreaker_picks : has
     seasons ||--o{ wc_player_goal_totals : has
+    seasons ||--o{ nba_match_results : has
+    seasons ||--o{ nba_processed_games : has
+    seasons ||--o{ nba_tiebreaker_picks : has
     seasons ||--o{ nba_player_points_totals : has
+    seasons ||--o{ nfl_match_results : has
+    seasons ||--o{ nfl_processed_games : has
+    seasons ||--o{ nfl_tiebreaker_picks : has
     seasons ||--o{ nfl_player_touchdown_totals : has
-    pools ||--o{ registrations : has
-    pools ||--o{ wc_match_results : has
-    pools ||--o{ wc_processed_matches : has
-    pools ||--o{ wc_tiebreaker_picks : has
-    pools ||--o{ nba_match_results : has
-    pools ||--o{ nba_processed_games : has
-    pools ||--o{ nba_tiebreaker_picks : has
-    pools ||--o{ nfl_match_results : has
-    pools ||--o{ nfl_processed_games : has
-    pools ||--o{ nfl_tiebreaker_picks : has
-    pools ||--o| guild_config : "default for guild"
+    seasons ||--o| guild_config : "default for guild"
 
     leagues {
         int id PK
@@ -96,41 +53,20 @@ erDiagram
     }
     seasons {
         int id PK
-        int league_id FK
-        text slug UK
-        text name
-    }
-    pools {
-        int id PK
         int guild_id
-        int season_id FK
+        int league_id FK
+        text slug
+        text name
         int announce_channel_id
     }
     guild_config {
         int guild_id PK
-        int default_pool_id FK
+        int default_season_id FK
     }
     registrations {
-        int pool_id PK,FK
+        int season_id PK,FK
         int user_id
         int team_id PK
         text team_name
     }
 ```
-
-## Code layout
-
-| Layer | Path | Notes |
-|-------|------|-------|
-| Migrations | `migrate.rs` | `CREATE TABLE` + version bumps |
-| Shared entities | `pool.rs`, `season.rs`, `league.rs`, `guild_config.rs`, `registration.rs`, `team.rs` | Catalog and pool tenancy |
-| League gameplay | `wc/` (live), `nba/`, `nfl/` (schema only today) | Match results, processed flags, tie-breakers, player totals |
-
-World Cup accessors are implemented under `wc/`. NBA and NFL tables exist in the schema for future leagues; Rust modules follow the same pattern when those leagues ship.
-
-## Conventions
-
-- Methods take `&Connection` and return `rusqlite::Result<T>`.
-- No HTTP, Discord, or poise imports in `db/`.
-- Schema changes require a bump to `SCHEMA_VERSION` in `migrate.rs`.
-- Resolve the active pool through `GuildConfig` / `Pool::default_for_guild` — do not hardcode pool ids.

@@ -1,5 +1,5 @@
 use crate::{
-    db::{Pool, Registration, WcTiebreakerPick},
+    db::{Season, Registration, WcTiebreakerPick},
     soccar::{fetch_squads_for_teams, find_players},
     types::{Data, Error},
 };
@@ -12,8 +12,8 @@ pub async fn pick_tiebreaker_player(
 ) -> Result<String, Error> {
     let registrations = {
         let conn = data.db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        Registration::list_for_user(&conn, pool.id, user_id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        Registration::list_for_user(&conn, season.id, user_id)?
     };
 
     if registrations.is_empty() {
@@ -36,10 +36,10 @@ pub async fn pick_tiebreaker_player(
         )),
         [selected] => {
             let conn = data.db.lock().await;
-            let pool = Pool::default_for_guild(&conn, guild_id)?;
+            let season = Season::default_for_guild(&conn, guild_id)?;
             WcTiebreakerPick::upsert(
                 &conn,
-                pool.id,
+                season.id,
                 user_id,
                 selected.player_id,
                 &selected.player_name,

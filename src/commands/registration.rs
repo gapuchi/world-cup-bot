@@ -2,7 +2,7 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    registration::{self, PoolTeamsList, UnclaimedTeams},
+    registration::{self, SeasonTeamsList, UnclaimedTeams},
     types::{Context, Error},
 };
 
@@ -82,12 +82,12 @@ pub async fn my_team(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
-    match registration::list_pool_teams(ctx.data(), guild_id).await? {
-        PoolTeamsList::Empty => {
+    match registration::list_season_teams(ctx.data(), guild_id).await? {
+        SeasonTeamsList::Empty => {
             ctx.say("No teams claimed yet. Use `/claim` to pick a nation.")
                 .await?;
         }
-        PoolTeamsList::ByUser(assignments) => {
+        SeasonTeamsList::ByUser(assignments) => {
             let lines: Vec<String> = assignments
                 .iter()
                 .map(|(user_id, teams)| {

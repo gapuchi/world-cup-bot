@@ -35,9 +35,9 @@ Slash commands are registered automatically in each guild the bot joins on start
 
 ## Configuration
 
-Each Discord server configures the bot independently. On a **new** server, an admin must create a season pool first — there is no default until `/config season` has been run in that server. Run `/help config` for subcommands.
+Each Discord server configures the bot independently. On a **new** server, an admin must create a season first — there is no default until `/config season` has been run in that server. Run `/help config` for subcommands.
 
-Match announcements are only sent after `/config channel` has been set for that pool. Each pool keeps its own channel, registrations, scores, and tie-breaker picks. Gameplay commands always target the default pool for the server where the command was run.
+Match announcements are only sent after `/config channel` has been set for that season. Each season keeps its own channel, registrations, scores, and tie-breaker picks. Gameplay commands always target the default season for the server where the command was run.
 
 Use `/season` to see which league and season commands currently target in this server.
 

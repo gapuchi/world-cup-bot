@@ -22,7 +22,7 @@ src/
     registration.rs # claim, assign, unclaim, teams, …
     wc/             # pick-player, standings, season
     nfl/            # placeholder for future NFL commands
-  poller.rs         # Background job: polls all pools, posts announcements
+  poller.rs         # Background job: polls all seasons, posts announcements
   scoring.rs        # Match points (win/draw/loss)
   standings.rs      # Leaderboard ranking and tie-breakers
   soccar.rs         # Domain logic on soccer API data (not HTTP)
@@ -32,8 +32,8 @@ src/
   db/
     mod.rs          # `init()` + public re-exports (no business logic)
     migrate.rs      # Schema migrations
-    guild_config.rs # Per-guild default pool
-    <entity>.rs     # Shared entities (pool, league, registration, …)
+    guild_config.rs # Per-guild default season
+    <entity>.rs     # Shared entities (season, league, registration, …)
     wc/             # World Cup gameplay tables
       match_result.rs
       processed_match.rs
@@ -70,50 +70,33 @@ Refactored to one module per entity. Shared catalog/pool modules live at `db/` r
 
 ### Commands and poller
 
-- **Commands** resolve the invoking guild's **default** pool via `Pool::default_for_guild(conn, guild_id)`. API competition codes are derived from league slug via `league_competition_code()`. Pass `ctx.guild_id()` from guild-only commands.
-- **Poller** processes **all** pools (every guild), grouped by `league_slug`.
+- **Commands** resolve the invoking guild's **default** season via `Season::default_for_guild(conn, guild_id)`. API competition codes are derived from league slug via `league_competition_code()`. Pass `ctx.guild_id()` from guild-only commands.
+- **Poller** processes **all** seasons (every guild), grouped by `league_slug`.
 
-## Multi-guild pools
+## Seasons (multi-guild, multi-league)
 
-Each Discord guild has independent gameplay data. Tenancy is scoped at **pool** (`pools.guild_id`).
-
-| Concept | Where | Purpose |
-|---------|-------|---------|
-| `guild_id` | `pools` | Which Discord server owns the pool |
-| `default_pool_id` | `guild_config` | Which pool `/claim`, `/standings`, etc. target in that guild |
-| `Pool::default_for_guild()` | `db/pool.rs` | Resolves default pool for a guild |
-| `Pool::get_or_create_for_season(conn, guild_id, season_id)` | `db/pool.rs` | Creates pool for guild + season on demand |
-| `Pool::get_for_guild_league(conn, guild_id, slug)` | `db/pool.rs` | Latest pool for a guild + league |
-| `Pool::list_with_league(conn, guild_id)` | `db/pool.rs` | Pools configured in one guild |
-| `Pool::list_all_with_meta()` | `db/pool.rs` | All pools for the poller |
-| `/config season` | `commands/config.rs` | Create season + pool for invoking guild |
-| `/config league <slug>` | `commands/config.rs` | Set default pool for invoking guild |
-
-Rules:
-
-- `pool_id` remains the stable key for registrations, match results, tie-breakers, and announcements.
-- Fresh guilds have no pools until `/config season` runs (no bootstrap pool or season on new installs).
-- `leagues` are seeded at migration; `seasons` and pools are created per deployment via `/config season`.
-- Do not hardcode guild or pool ids in commands.
-
-## Multi-league pools
-
-Introduced in the "Multi League Support" refactor. Key concepts:
+Each Discord guild has independent gameplay data. Tenancy is scoped at **season** (`seasons.guild_id`).
 
 | Concept | Where | Purpose |
 |---------|-------|---------|
-| `default_pool_id` | `guild_config` | Per-guild default; set by `/config league` or `/config season` |
-| `Pool::get_or_create_for_season()` | `db/pool.rs` | Creates pool for guild + season on demand |
-| `PoolMeta` | `db/pool.rs` | Pool + league slug + name |
-| `/config season` | `commands/config.rs` | Create season + pool for invoking guild |
-| `/config league <slug>` | `commands/config.rs` | Switch default pool within a guild |
+| `guild_id` | `seasons` | Which Discord server owns the season |
+| `default_season_id` | `guild_config` | Which season `/claim`, `/standings`, etc. target in that guild |
+| `Season::default_for_guild()` | `db/season.rs` | Resolves default season for a guild |
+| `Season::get_or_create(conn, guild_id, league_slug, slug, name)` | `db/season.rs` | Creates season for a guild on demand |
+| `Season::get_for_guild_league(conn, guild_id, slug)` | `db/season.rs` | Latest season for a guild + league |
+| `Season::list_with_league(conn, guild_id)` | `db/season.rs` | Seasons configured in one guild |
+| `Season::list_all_with_meta()` | `db/season.rs` | All seasons for the poller |
+| `/config season` | `commands/config.rs` | Create season for invoking guild |
+| `/config league <slug>` | `commands/config.rs` | Set default season for a league in that guild |
 
 Rules:
 
-- `pool_id` remains the stable key for registrations, match results, tie-breakers, and announcements.
-- Switching default league changes which pool commands see in that guild; each league keeps its own pool data per guild.
+- `season_id` is the stable key for registrations, match results, tie-breakers, player stat totals, and announcements.
+- Fresh guilds have no seasons until `/config season` runs (no bootstrap on new installs).
+- `leagues` are seeded at migration; seasons are created per guild via `/config season`.
+- Switching default league changes which season commands see in that guild; each league keeps its own season data per guild.
 - Poller dispatches by `league_slug` (`"wc"` implemented, `"nfl"` is a no-op seam).
-- Do not hardcode a fixed pool id outside command-driven setup.
+- Do not hardcode guild or season ids in commands.
 
 ## Accessing the soccer API
 
@@ -153,7 +136,7 @@ Import types from `crate::api`, domain helpers from `crate::soccar`.
 
 - Put search, filtering, or orchestration in `src/api/`.
 - Put HTTP or Discord logic in `src/db/`.
-- Bypass `Pool::default_for_guild()` in gameplay commands — always pass the invoking guild id.
+- Bypass `Season::default_for_guild()` in gameplay commands — always pass the invoking guild id.
 - Re-introduce a monolithic `db/mod.rs` with all SQL inline.
 - Pass raw `reqwest::Client` + token when `soccar_api()` exists.
 

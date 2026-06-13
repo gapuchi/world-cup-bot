@@ -7,7 +7,7 @@ use serenity::Mentionable;
 
 use crate::{
     api::Match,
-    db::{Pool, PoolMeta, Registration, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, league_competition_code},
+    db::{Registration, Season, SeasonMeta, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, league_competition_code},
     soccar::full_time_score,
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     standings,
@@ -40,18 +40,18 @@ async fn poll_once(
     data: &Data,
     http: &serenity::Http,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let pool_metas = {
+    let season_metas = {
         let conn = data.db.lock().await;
-        Pool::list_all_with_meta(&conn)?
+        Season::list_all_with_meta(&conn)?
     };
 
-    if pool_metas.is_empty() {
-        eprintln!("Poll complete: no pools configured");
+    if season_metas.is_empty() {
+        eprintln!("Poll complete: no seasons configured");
         return Ok(());
     }
 
-    let mut by_league: HashMap<String, Vec<PoolMeta>> = HashMap::new();
-    for meta in pool_metas {
+    let mut by_league: HashMap<String, Vec<SeasonMeta>> = HashMap::new();
+    for meta in season_metas {
         by_league
             .entry(meta.league_slug.clone())
             .or_default()
@@ -60,45 +60,45 @@ async fn poll_once(
 
     let mut total_matches = 0;
     let mut total_scored = 0;
-    let mut total_pools = 0;
+    let mut total_seasons = 0;
 
-    for (league_slug, pools) in by_league {
+    for (league_slug, seasons) in by_league {
         let competition = league_competition_code(&league_slug);
         match league_slug.as_str() {
             "wc" => {
                 let (matches, scored, scorers_line) =
-                    poll_wc(data, http, &pools, &competition).await?;
+                    poll_wc(data, http, &seasons, &competition).await?;
                 total_matches += matches;
                 total_scored += scored;
-                total_pools += pools.len();
+                total_seasons += seasons.len();
                 eprintln!(
-                    "WC poll: {} finished match(es) ({} with scores), {} pool(s){scorers_line}",
+                    "WC poll: {} finished match(es) ({} with scores), {} season(s){scorers_line}",
                     matches,
                     scored,
-                    pools.len(),
+                    seasons.len(),
                     scorers_line = scorers_line,
                 );
             }
             "nfl" => {
                 eprintln!(
-                    "NFL polling not implemented yet ({} pool(s) skipped)",
-                    pools.len()
+                    "NFL polling not implemented yet ({} season(s) skipped)",
+                    seasons.len()
                 );
             }
             other => {
                 eprintln!(
-                    "No poller for league \"{other}\" ({competition}, {} pool(s) skipped)",
-                    pools.len()
+                    "No poller for league \"{other}\" ({competition}, {} season(s) skipped)",
+                    seasons.len()
                 );
             }
         }
     }
 
     eprintln!(
-        "Poll complete: {} finished match(es) ({} with scores), {} pool(s)",
+        "Poll complete: {} finished match(es) ({} with scores), {} season(s)",
         total_matches,
         total_scored,
-        total_pools,
+        total_seasons,
     );
 
     Ok(())
@@ -107,23 +107,22 @@ async fn poll_once(
 async fn poll_wc(
     data: &Data,
     http: &serenity::Http,
-    pools: &[PoolMeta],
+    seasons: &[SeasonMeta],
     competition: &str,
 ) -> Result<(usize, usize, String), Box<dyn std::error::Error + Send + Sync>> {
     let matches = data.soccar_api().fetch_finished_matches(competition).await?;
 
     {
         let conn = data.db.lock().await;
-        for meta in pools {
+        for meta in seasons {
             for m in &matches {
-                if let Some(result) = wc_match_result_from_api(meta.pool.id, m) {
+                if let Some(result) = wc_match_result_from_api(meta.season.id, m) {
                     result.upsert(&conn)?;
                 }
             }
         }
     }
 
-    let season_id = pools[0].pool.season_id;
     let scorers_line = match data.soccar_api().fetch_scorers(competition).await {
         Ok(scorers) => {
             let count = scorers.len();
@@ -133,13 +132,28 @@ async fn poll_wc(
                 .into_iter()
                 .map(|scorer| (scorer.player_id, scorer.goals))
                 .collect();
-            if let Err(error) =
-                WcPlayerGoalTotal::upsert_batch(&conn, season_id, &scorer_pairs, &updated_at)
-            {
-                eprintln!("Failed to cache player goal totals: {error}");
+            let mut cached = 0;
+            for meta in seasons {
+                if WcPlayerGoalTotal::upsert_batch(
+                    &conn,
+                    meta.season.id,
+                    &scorer_pairs,
+                    &updated_at,
+                )
+                .is_ok()
+                {
+                    cached += 1;
+                } else {
+                    eprintln!(
+                        "Failed to cache player goal totals for season {}",
+                        meta.season.id
+                    );
+                }
+            }
+            if cached == 0 {
                 String::new()
             } else {
-                format!(", {count} scorers cached")
+                format!(", {count} scorers cached for {cached} season(s)")
             }
         }
         Err(error) => {
@@ -148,13 +162,13 @@ async fn poll_wc(
         }
     };
 
-    for meta in pools {
+    for meta in seasons {
         for m in &matches {
             if let Err(error) = process_wc_match(data, http, meta, m).await {
                 eprintln!(
-                    "Failed to process match {} for pool {}: {error}",
+                    "Failed to process match {} for season {}: {error}",
                     m.id,
-                    meta.pool.id
+                    meta.season.id
                 );
             }
         }
@@ -168,10 +182,10 @@ async fn poll_wc(
     Ok((matches.len(), scored_matches, scorers_line))
 }
 
-fn wc_match_result_from_api(pool_id: i64, m: &Match) -> Option<WcMatchResult> {
+fn wc_match_result_from_api(season_id: i64, m: &Match) -> Option<WcMatchResult> {
     let (home_goals, away_goals) = full_time_score(m)?;
     Some(WcMatchResult {
-        pool_id,
+        season_id,
         match_id: m.id,
         home_team_id: m.home_team.id,
         away_team_id: m.away_team.id,
@@ -184,22 +198,22 @@ fn wc_match_result_from_api(pool_id: i64, m: &Match) -> Option<WcMatchResult> {
 async fn process_wc_match(
     data: &Data,
     http: &serenity::Http,
-    meta: &PoolMeta,
+    meta: &SeasonMeta,
     m: &Match,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let pool = &meta.pool;
+    let season = &meta.season;
     let Some((home_goals, away_goals)) = full_time_score(m) else {
         return Ok(());
     };
 
     let updates = {
         let conn = data.db.lock().await;
-        if WcProcessedMatch::is_processed(&conn, pool.id, m.id)? {
-            let stored = WcMatchResult::score(&conn, pool.id, m.id)?;
+        if WcProcessedMatch::is_processed(&conn, season.id, m.id)? {
+            let stored = WcMatchResult::score(&conn, season.id, m.id)?;
             if stored == Some((home_goals, away_goals)) {
                 return Ok(());
             }
-            WcProcessedMatch::unmark(&conn, pool.id, m.id)?;
+            WcProcessedMatch::unmark(&conn, season.id, m.id)?;
         }
 
         let finished = scoring::FinishedMatch {
@@ -212,10 +226,10 @@ async fn process_wc_match(
         let mut updates = Vec::new();
 
         if let Some(registration) =
-            Registration::get_by_team(&conn, pool.id, m.home_team.id)?
+            Registration::get_by_team(&conn, season.id, m.home_team.id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = standings::user_points(&conn, pool.id, registration.user_id)?;
+            let total = standings::user_points(&conn, season.id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -225,10 +239,10 @@ async fn process_wc_match(
         }
 
         if let Some(registration) =
-            Registration::get_by_team(&conn, pool.id, m.away_team.id)?
+            Registration::get_by_team(&conn, season.id, m.away_team.id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = standings::user_points(&conn, pool.id, registration.user_id)?;
+            let total = standings::user_points(&conn, season.id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -238,15 +252,15 @@ async fn process_wc_match(
         }
 
         if updates.is_empty() {
-            WcProcessedMatch::mark(&conn, pool.id, m.id)?;
+            WcProcessedMatch::mark(&conn, season.id, m.id)?;
             return Ok(());
         }
 
-        WcProcessedMatch::mark(&conn, pool.id, m.id)?;
+        WcProcessedMatch::mark(&conn, season.id, m.id)?;
         updates
     };
 
-    let Some(channel_id) = pool.announce_channel_id else {
+    let Some(channel_id) = season.announce_channel_id else {
         return Ok(());
     };
 

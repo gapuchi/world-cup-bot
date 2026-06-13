@@ -1,9 +1,9 @@
 use rusqlite::Connection;
 
-use world_cup_bot::db::{self, GuildConfig, Pool, Season, SCHEMA_VERSION};
+use world_cup_bot::db::{self, GuildConfig, Season, SCHEMA_VERSION};
 
 #[test]
-fn fresh_init_seeds_catalog_without_pools() {
+fn fresh_init_seeds_catalog_without_seasons() {
     let conn = Connection::open_in_memory().unwrap();
     db::init(&conn).unwrap();
 
@@ -21,11 +21,6 @@ fn fresh_init_seeds_catalog_without_pools() {
         .query_row("SELECT COUNT(*) FROM seasons", [], |row| row.get(0))
         .unwrap();
     assert_eq!(seasons, 0);
-
-    let pools: i64 = conn
-        .query_row("SELECT COUNT(*) FROM pools", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(pools, 0);
 
     let guild_configs: i64 = conn
         .query_row("SELECT COUNT(*) FROM guild_config", [], |row| row.get(0))
@@ -62,72 +57,120 @@ fn init_is_idempotent() {
     db::init(&conn).unwrap();
     db::init(&conn).unwrap();
 
-    let pools: i64 = conn
-        .query_row("SELECT COUNT(*) FROM pools", [], |row| row.get(0))
+    let seasons: i64 = conn
+        .query_row("SELECT COUNT(*) FROM seasons", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(pools, 0);
+    assert_eq!(seasons, 0);
 }
 
 #[test]
-fn get_or_create_for_season_scopes_by_guild() {
+fn get_or_create_scopes_by_guild() {
     let conn = Connection::open_in_memory().unwrap();
     db::init(&conn).unwrap();
-
-    let season = Season::get_or_create(&conn, "wc", "wc-2026", "World Cup 2026").unwrap();
 
     let guild_a = 111_u64;
     let guild_b = 222_u64;
 
-    let pool_a = Pool::get_or_create_for_season(&conn, guild_a, season.id).unwrap();
-    let pool_b = Pool::get_or_create_for_season(&conn, guild_b, season.id).unwrap();
+    let season_a =
+        Season::get_or_create(&conn, guild_a, "wc", "wc-2026", "World Cup 2026").unwrap();
+    let season_b =
+        Season::get_or_create(&conn, guild_b, "wc", "wc-2026", "World Cup 2026").unwrap();
 
-    assert_ne!(pool_a.id, pool_b.id);
-    assert_eq!(pool_a.guild_id, guild_a);
-    assert_eq!(pool_b.guild_id, guild_b);
+    assert_ne!(season_a.id, season_b.id);
+    assert_eq!(season_a.guild_id, guild_a);
+    assert_eq!(season_b.guild_id, guild_b);
 
-    GuildConfig::set_default_pool_id(&conn, guild_a, pool_a.id).unwrap();
-    GuildConfig::set_default_pool_id(&conn, guild_b, pool_b.id).unwrap();
+    GuildConfig::set_default_season_id(&conn, guild_a, season_a.id).unwrap();
+    GuildConfig::set_default_season_id(&conn, guild_b, season_b.id).unwrap();
 
-    assert_eq!(Pool::default_for_guild(&conn, guild_a).unwrap().id, pool_a.id);
-    assert_eq!(Pool::default_for_guild(&conn, guild_b).unwrap().id, pool_b.id);
+    assert_eq!(
+        Season::default_for_guild(&conn, guild_a).unwrap().id,
+        season_a.id
+    );
+    assert_eq!(
+        Season::default_for_guild(&conn, guild_b).unwrap().id,
+        season_b.id
+    );
 }
 
 #[test]
-fn fresh_init_has_no_external_season_id_column() {
-    let conn = Connection::open_in_memory().unwrap();
-    db::init(&conn).unwrap();
-
-    let has_column: bool = conn
-        .prepare("PRAGMA table_info(seasons)")
-        .unwrap()
-        .query_map([], |row| row.get::<_, String>(1))
-        .unwrap()
-        .flatten()
-        .any(|name| name == "external_season_id");
-    assert!(!has_column);
-}
-
-#[test]
-fn migration_v2_drops_external_season_id() {
+fn migration_v3_merges_pool_into_season() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         "
         CREATE TABLE schema_version (version INTEGER NOT NULL);
-        INSERT INTO schema_version (version) VALUES (1);
+        INSERT INTO schema_version (version) VALUES (2);
         CREATE TABLE leagues (
             id INTEGER PRIMARY KEY,
             slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             sport TEXT NOT NULL
         );
+        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
         CREATE TABLE seasons (
             id INTEGER PRIMARY KEY,
             league_id INTEGER NOT NULL REFERENCES leagues(id),
             slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
-            external_season_id TEXT,
             UNIQUE (league_id, slug)
         );
+        INSERT INTO seasons (id, league_id, slug, name) VALUES (10, 1, 'wc-2026', 'World Cup 2026');
+        CREATE TABLE pools (
+            id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            season_id INTEGER NOT NULL REFERENCES seasons(id),
+            announce_channel_id INTEGER,
+            UNIQUE (guild_id, season_id)
+        );
+        INSERT INTO pools (id, guild_id, season_id, announce_channel_id) VALUES (1, 111, 10, 999);
+        INSERT INTO pools (id, guild_id, season_id) VALUES (2, 222, 10);
+        CREATE TABLE guild_config (
+            guild_id INTEGER PRIMARY KEY,
+            default_pool_id INTEGER NOT NULL REFERENCES pools(id)
+        );
+        INSERT INTO guild_config (guild_id, default_pool_id) VALUES (111, 1);
+        CREATE TABLE registrations (
+            pool_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            team_id INTEGER NOT NULL,
+            team_name TEXT NOT NULL,
+            PRIMARY KEY (pool_id, team_id)
+        );
+        INSERT INTO registrations (pool_id, user_id, team_id, team_name) VALUES (1, 42, 7, 'Brazil');
+        CREATE TABLE wc_match_results (
+            pool_id INTEGER NOT NULL,
+            match_id INTEGER NOT NULL,
+            home_team_id INTEGER NOT NULL,
+            away_team_id INTEGER NOT NULL,
+            home_goals INTEGER NOT NULL,
+            away_goals INTEGER NOT NULL,
+            stage TEXT,
+            finished_at TEXT,
+            PRIMARY KEY (pool_id, match_id)
+        );
+        CREATE TABLE wc_processed_matches (
+            pool_id INTEGER NOT NULL,
+            match_id INTEGER NOT NULL,
+            PRIMARY KEY (pool_id, match_id)
+        );
+        CREATE TABLE wc_tiebreaker_picks (
+            pool_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            player_id INTEGER NOT NULL,
+            player_name TEXT NOT NULL,
+            team_id INTEGER NOT NULL,
+            team_name TEXT NOT NULL,
+            PRIMARY KEY (pool_id, user_id)
+        );
+        CREATE TABLE wc_player_goal_totals (
+            season_id INTEGER NOT NULL,
+            player_id INTEGER NOT NULL,
+            goals INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (season_id, player_id)
+        );
+        INSERT INTO wc_player_goal_totals (season_id, player_id, goals, updated_at)
+        VALUES (10, 99, 3, '1');
         ",
     )
     .unwrap();
@@ -139,12 +182,52 @@ fn migration_v2_drops_external_season_id() {
         .unwrap();
     assert_eq!(version, SCHEMA_VERSION);
 
-    let has_column: bool = conn
-        .prepare("PRAGMA table_info(seasons)")
-        .unwrap()
-        .query_map([], |row| row.get::<_, String>(1))
-        .unwrap()
-        .flatten()
-        .any(|name| name == "external_season_id");
-    assert!(!has_column);
+    let has_pools: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pools'",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok();
+    assert!(!has_pools);
+
+    let season = Season::get(&conn, 1).unwrap().unwrap();
+    assert_eq!(season.guild_id, 111);
+    assert_eq!(season.slug, "wc-2026");
+    assert_eq!(season.announce_channel_id, Some(999));
+
+    let default_season_id: i64 = conn
+        .query_row(
+            "SELECT default_season_id FROM guild_config WHERE guild_id = 111",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(default_season_id, 1);
+
+    let team_name: String = conn
+        .query_row(
+            "SELECT team_name FROM registrations WHERE season_id = 1 AND team_id = 7",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(team_name, "Brazil");
+
+    let goals_for_pool_1: i64 = conn
+        .query_row(
+            "SELECT goals FROM wc_player_goal_totals WHERE season_id = 1 AND player_id = 99",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let goals_for_pool_2: i64 = conn
+        .query_row(
+            "SELECT goals FROM wc_player_goal_totals WHERE season_id = 2 AND player_id = 99",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(goals_for_pool_1, 3);
+    assert_eq!(goals_for_pool_2, 3);
 }

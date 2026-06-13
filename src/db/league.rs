@@ -21,7 +21,7 @@ pub fn exists(conn: &Connection, slug: &str) -> rusqlite::Result<bool> {
     .map(|row| row.is_some())
 }
 
-pub fn supports_pool(slug: &str) -> bool {
+pub fn supports_season(slug: &str) -> bool {
     slug == WC_LEAGUE_SLUG
 }
 

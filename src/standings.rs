@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::{
-    db::{Pool, Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
+    db::{Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
 };
 
@@ -15,36 +15,33 @@ pub struct StandingRow {
     pub tiebreaker_player: Option<String>,
 }
 
-pub fn user_points(conn: &Connection, pool_id: i64, user_id: u64) -> rusqlite::Result<i64> {
-    let matches: Vec<_> = WcMatchResult::list_for_pool(conn, pool_id)?
+pub fn user_points(conn: &Connection, season_id: i64, user_id: u64) -> rusqlite::Result<i64> {
+    let matches: Vec<_> = WcMatchResult::list_for_season(conn, season_id)?
         .iter()
         .map(WcMatchResult::as_finished_match)
         .collect();
-    let registrations = Registration::list_for_user(conn, pool_id, user_id)?;
+    let registrations = Registration::list_for_user(conn, season_id, user_id)?;
     let team_ids: Vec<i64> = registrations.iter().map(|r| r.team_id).collect();
     Ok(scoring::points_for_teams(&team_ids, &matches))
 }
 
 pub fn tiebreaker_goals_for_user(
     conn: &Connection,
-    pool_id: i64,
+    season_id: i64,
     user_id: u64,
 ) -> rusqlite::Result<i64> {
-    let Some(pick) = WcTiebreakerPick::get_for_user(conn, pool_id, user_id)? else {
+    let Some(pick) = WcTiebreakerPick::get_for_user(conn, season_id, user_id)? else {
         return Ok(0);
     };
-    let pool = Pool::get(conn, pool_id)?.ok_or_else(|| {
-        rusqlite::Error::QueryReturnedNoRows
-    })?;
-    WcPlayerGoalTotal::goals_for_player(conn, pool.season_id, pick.player_id)
+    WcPlayerGoalTotal::goals_for_player(conn, season_id, pick.player_id)
 }
 
-pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<StandingRow>> {
-    let matches: Vec<_> = WcMatchResult::list_for_pool(conn, pool_id)?
+pub fn get_standings(conn: &Connection, season_id: i64) -> rusqlite::Result<Vec<StandingRow>> {
+    let matches: Vec<_> = WcMatchResult::list_for_season(conn, season_id)?
         .iter()
         .map(WcMatchResult::as_finished_match)
         .collect();
-    let registrations = Registration::list_for_pool(conn, pool_id)?;
+    let registrations = Registration::list_for_season(conn, season_id)?;
 
     let mut by_user: HashMap<u64, (Vec<i64>, Vec<String>)> = HashMap::new();
     for registration in registrations {
@@ -53,15 +50,10 @@ pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<St
         entry.1.push(registration.team_name);
     }
 
-    let pool = Pool::get(conn, pool_id)?.ok_or_else(|| {
-        rusqlite::Error::QueryReturnedNoRows
-    })?;
-    let season_id = pool.season_id;
-
     let mut rows: Vec<StandingRow> = by_user
         .into_iter()
         .map(|(user_id, (team_ids, team_names))| {
-            let pick = WcTiebreakerPick::get_for_user(conn, pool_id, user_id)
+            let pick = WcTiebreakerPick::get_for_user(conn, season_id, user_id)
                 .ok()
                 .flatten();
             let tiebreaker_goals = pick

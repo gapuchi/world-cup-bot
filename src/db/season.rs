@@ -1,76 +1,26 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::league;
+use super::{guild_config::GuildConfig, league};
 
 pub struct Season {
     pub id: i64,
+    pub guild_id: u64,
+    pub league_id: i64,
+    pub slug: String,
+    pub name: String,
+    pub announce_channel_id: Option<u64>,
 }
 
-impl Season {
-    pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Self>> {
-        conn.query_row(
-            "SELECT id FROM seasons WHERE id = ?1",
-            params![id],
-            |row| Ok(Self { id: row.get(0)? }),
-        )
-        .optional()
-    }
+pub struct SeasonMeta {
+    pub season: Season,
+    pub league_slug: String,
+    pub league_name: String,
+}
 
-    pub fn get_by_slug(conn: &Connection, slug: &str) -> rusqlite::Result<Option<Self>> {
-        conn.query_row(
-            "SELECT id FROM seasons WHERE slug = ?1",
-            params![slug],
-            |row| Ok(Self { id: row.get(0)? }),
-        )
-        .optional()
-    }
-
-    pub fn get_or_create(
-        conn: &Connection,
-        league_slug: &str,
-        slug: &str,
-        name: &str,
-    ) -> rusqlite::Result<Self> {
-        if let Some(season) = Self::get_by_slug(conn, slug)? {
-            return Ok(season);
-        }
-
-        let league_id = league::id_for_slug(conn, league_slug)?
-            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-
-        conn.execute(
-            "INSERT INTO seasons (league_id, slug, name) VALUES (?1, ?2, ?3)",
-            params![league_id, slug, name],
-        )?;
-        Self::get(conn, conn.last_insert_rowid())?.ok_or(rusqlite::Error::QueryReturnedNoRows)
-    }
-
-    pub fn league_id_for_pool(conn: &Connection, pool_id: i64) -> rusqlite::Result<i64> {
-        conn.query_row(
-            "
-            SELECT s.league_id
-            FROM pools p
-            JOIN seasons s ON s.id = p.season_id
-            WHERE p.id = ?1
-            ",
-            params![pool_id],
-            |row| row.get(0),
-        )
-    }
-
-    pub fn league_slug_for_pool(conn: &Connection, pool_id: i64) -> rusqlite::Result<String> {
-        conn.query_row(
-            "
-            SELECT l.slug
-            FROM pools p
-            JOIN seasons s ON s.id = p.season_id
-            JOIN leagues l ON l.id = s.league_id
-            WHERE p.id = ?1
-            ",
-            params![pool_id],
-            |row| row.get(0),
-        )
-    }
+pub struct SeasonLeague {
+    pub season: Season,
+    pub league_slug: String,
+    pub league_name: String,
 }
 
 pub struct SeasonDisplay {
@@ -79,17 +29,188 @@ pub struct SeasonDisplay {
     pub slug: String,
 }
 
+impl Season {
+    pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Self>> {
+        conn.query_row(
+            "
+            SELECT id, guild_id, league_id, slug, name, announce_channel_id
+            FROM seasons
+            WHERE id = ?1
+            ",
+            params![id],
+            row_from,
+        )
+        .optional()
+    }
+
+    pub fn default_for_guild(conn: &Connection, guild_id: u64) -> rusqlite::Result<Self> {
+        let config =
+            GuildConfig::get(conn, guild_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let season = Self::get(conn, config.default_season_id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        if season.guild_id != guild_id {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(season)
+    }
+
+    pub fn list_all_with_meta(conn: &Connection) -> rusqlite::Result<Vec<SeasonMeta>> {
+        let mut stmt = conn.prepare(
+            "
+            SELECT
+                s.id,
+                s.guild_id,
+                s.league_id,
+                s.slug,
+                s.name,
+                s.announce_channel_id,
+                l.slug,
+                l.name
+            FROM seasons s
+            JOIN leagues l ON l.id = s.league_id
+            ORDER BY s.id
+            ",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SeasonMeta {
+                season: season_from_row(row, 0, 1, 2, 3, 4, 5)?,
+                league_slug: row.get(6)?,
+                league_name: row.get(7)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_for_guild_league(
+        conn: &Connection,
+        guild_id: u64,
+        league_slug: &str,
+    ) -> rusqlite::Result<Option<Self>> {
+        conn.query_row(
+            "
+            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id
+            FROM seasons s
+            JOIN leagues l ON l.id = s.league_id
+            WHERE s.guild_id = ?1 AND l.slug = ?2
+            ORDER BY s.id DESC
+            LIMIT 1
+            ",
+            params![guild_id as i64, league_slug],
+            row_from,
+        )
+        .optional()
+    }
+
+    pub fn get_or_create(
+        conn: &Connection,
+        guild_id: u64,
+        league_slug: &str,
+        slug: &str,
+        name: &str,
+    ) -> rusqlite::Result<Self> {
+        if let Some(season) = Self::get_by_guild_league_slug(conn, guild_id, league_slug, slug)? {
+            return Ok(season);
+        }
+
+        let league_id = league::id_for_slug(conn, league_slug)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+
+        conn.execute(
+            "
+            INSERT INTO seasons (guild_id, league_id, slug, name)
+            VALUES (?1, ?2, ?3, ?4)
+            ",
+            params![guild_id as i64, league_id, slug, name],
+        )?;
+        Self::get(conn, conn.last_insert_rowid())?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn set_announce_channel(
+        conn: &Connection,
+        id: i64,
+        channel_id: u64,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "UPDATE seasons SET announce_channel_id = ?1 WHERE id = ?2",
+            params![channel_id as i64, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_with_league(
+        conn: &Connection,
+        guild_id: u64,
+    ) -> rusqlite::Result<Vec<SeasonLeague>> {
+        let mut stmt = conn.prepare(
+            "
+            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id, l.slug, l.name
+            FROM seasons s
+            JOIN leagues l ON l.id = s.league_id
+            WHERE s.guild_id = ?1
+            ORDER BY l.id
+            ",
+        )?;
+        let rows = stmt.query_map(params![guild_id as i64], |row| {
+            Ok(SeasonLeague {
+                season: season_from_row(row, 0, 1, 2, 3, 4, 5)?,
+                league_slug: row.get(6)?,
+                league_name: row.get(7)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn league_id_for(conn: &Connection, season_id: i64) -> rusqlite::Result<i64> {
+        conn.query_row(
+            "SELECT league_id FROM seasons WHERE id = ?1",
+            params![season_id],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn league_slug_for(conn: &Connection, season_id: i64) -> rusqlite::Result<String> {
+        conn.query_row(
+            "
+            SELECT l.slug
+            FROM seasons s
+            JOIN leagues l ON l.id = s.league_id
+            WHERE s.id = ?1
+            ",
+            params![season_id],
+            |row| row.get(0),
+        )
+    }
+
+    fn get_by_guild_league_slug(
+        conn: &Connection,
+        guild_id: u64,
+        league_slug: &str,
+        slug: &str,
+    ) -> rusqlite::Result<Option<Self>> {
+        conn.query_row(
+            "
+            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id
+            FROM seasons s
+            JOIN leagues l ON l.id = s.league_id
+            WHERE s.guild_id = ?1 AND l.slug = ?2 AND s.slug = ?3
+            ",
+            params![guild_id as i64, league_slug, slug],
+            row_from,
+        )
+        .optional()
+    }
+}
+
 impl SeasonDisplay {
-    pub fn for_pool(conn: &Connection, pool_id: i64) -> rusqlite::Result<Self> {
+    pub fn for_season(conn: &Connection, season_id: i64) -> rusqlite::Result<Self> {
         conn.query_row(
             "
             SELECT l.name, s.name, s.slug
-            FROM pools p
-            JOIN seasons s ON s.id = p.season_id
+            FROM seasons s
             JOIN leagues l ON l.id = s.league_id
-            WHERE p.id = ?1
+            WHERE s.id = ?1
             ",
-            params![pool_id],
+            params![season_id],
             |row| {
                 Ok(Self {
                     league_name: row.get(0)?,
@@ -99,4 +220,28 @@ impl SeasonDisplay {
             },
         )
     }
+}
+
+fn season_from_row(
+    row: &rusqlite::Row<'_>,
+    id_col: usize,
+    guild_col: usize,
+    league_col: usize,
+    slug_col: usize,
+    name_col: usize,
+    channel_col: usize,
+) -> rusqlite::Result<Season> {
+    let channel: Option<i64> = row.get(channel_col)?;
+    Ok(Season {
+        id: row.get(id_col)?,
+        guild_id: row.get::<_, i64>(guild_col)? as u64,
+        league_id: row.get(league_col)?,
+        slug: row.get(slug_col)?,
+        name: row.get(name_col)?,
+        announce_channel_id: channel.map(|id| id as u64),
+    })
+}
+
+fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<Season> {
+    season_from_row(row, 0, 1, 2, 3, 4, 5)
 }

@@ -1,7 +1,7 @@
 use poise::serenity_prelude as serenity;
 
 use crate::{
-    db::Pool,
+    db::Season,
     standings::{self, format_standings_detail_lines, format_standings_summary_lines, standings_footer},
     types::{Context, Error},
 };
@@ -14,8 +14,8 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
     let rows = {
         let conn = ctx.data().db.lock().await;
-        let pool = Pool::default_for_guild(&conn, guild_id)?;
-        standings::get_standings(&conn, pool.id)?
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        standings::get_standings(&conn, season.id)?
     };
 
     if rows.is_empty() {
