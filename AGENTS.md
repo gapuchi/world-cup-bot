@@ -92,7 +92,6 @@ Rules:
 - `pool_id` remains the stable key for registrations, match results, tie-breakers, and announcements.
 - Fresh guilds have no pools until `/config league` runs (no bootstrap pool on new installs).
 - `leagues`, `seasons`, and season-level player totals (`wc_player_goal_totals`, etc.) stay global — factual API data shared across guilds.
-- v1 → v2 migration assigns existing rows to `LEGACY_GUILD_ID` in `migrate.rs`.
 - Do not hardcode guild or pool ids in commands.
 
 ## Multi-league pools

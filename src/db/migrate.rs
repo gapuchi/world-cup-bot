@@ -1,7 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 2;
-pub const LEGACY_GUILD_ID: i64 = 527_288_150_515_646_484;
+pub const SCHEMA_VERSION: i64 = 1;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const WC_SEASON_SLUG: &str = "wc-2026";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
@@ -176,25 +175,11 @@ CREATE TABLE IF NOT EXISTS nfl_player_touchdown_totals (
 pub fn run(conn: &Connection) -> rusqlite::Result<()> {
     let version = current_version(conn)?;
 
-    match version {
-        None if is_legacy_v1_database(conn)? => {
-            seed_catalog(conn)?;
-            migrate_v1_to_v2(conn)?;
-            set_version(conn, SCHEMA_VERSION)?;
-        }
-        None => {
-            conn.execute_batch(CREATE_SCHEMA)?;
-            seed_catalog(conn)?;
-            set_version(conn, SCHEMA_VERSION)?;
-        }
-        Some(v) if v < SCHEMA_VERSION => {
-            migrate_v1_to_v2(conn)?;
-            set_version(conn, SCHEMA_VERSION)?;
-        }
-        Some(_) => {
-            conn.execute_batch(CREATE_SCHEMA)?;
-            seed_catalog(conn)?;
-        }
+    conn.execute_batch(CREATE_SCHEMA)?;
+    seed_catalog(conn)?;
+
+    if version.is_none() {
+        set_version(conn, SCHEMA_VERSION)?;
     }
 
     Ok(())
@@ -276,83 +261,6 @@ fn seed_catalog(conn: &Connection) -> rusqlite::Result<()> {
         [NFL_SEASON_SLUG],
     )?;
     Ok(())
-}
-
-fn is_legacy_v1_database(conn: &Connection) -> rusqlite::Result<bool> {
-    if !table_exists(conn, "pools")? {
-        return Ok(false);
-    }
-    if pools_has_guild_id(conn)? {
-        return Ok(false);
-    }
-    table_exists(conn, "bot_config")
-}
-
-fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
-    if pools_has_guild_id(conn)? && !table_exists(conn, "bot_config")? {
-        return Ok(());
-    }
-
-    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
-    let tx = conn.unchecked_transaction()?;
-
-    if !pools_has_guild_id(conn)? {
-        tx.execute_batch(
-            "
-            CREATE TABLE pools_new (
-                id                      INTEGER PRIMARY KEY,
-                guild_id                INTEGER NOT NULL,
-                season_id               INTEGER NOT NULL REFERENCES seasons(id),
-                announce_channel_id     INTEGER,
-                UNIQUE (guild_id, season_id)
-            );
-            ",
-        )?;
-        tx.execute(
-            "
-            INSERT INTO pools_new (id, guild_id, season_id, announce_channel_id)
-            SELECT id, ?1, season_id, announce_channel_id FROM pools
-            ",
-            [LEGACY_GUILD_ID],
-        )?;
-        tx.execute_batch("DROP TABLE pools; ALTER TABLE pools_new RENAME TO pools;")?;
-    }
-
-    if table_exists(conn, "bot_config")? {
-        tx.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS guild_config (
-                guild_id                INTEGER PRIMARY KEY,
-                default_pool_id         INTEGER NOT NULL REFERENCES pools(id)
-            );
-            ",
-        )?;
-        tx.execute(
-            "
-            INSERT INTO guild_config (guild_id, default_pool_id)
-            SELECT ?1, active_pool_id FROM bot_config WHERE id = 1
-            ",
-            [LEGACY_GUILD_ID],
-        )?;
-        tx.execute_batch("DROP TABLE bot_config;")?;
-    }
-
-    tx.commit()?;
-    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-    Ok(())
-}
-
-fn pools_has_guild_id(conn: &Connection) -> rusqlite::Result<bool> {
-    if !table_exists(conn, "pools")? {
-        return Ok(false);
-    }
-    conn.query_row(
-        "SELECT 1 FROM pragma_table_info('pools') WHERE name = 'guild_id'",
-        [],
-        |_| Ok(()),
-    )
-    .optional()
-    .map(|row| row.is_some())
 }
 
 fn table_exists(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
