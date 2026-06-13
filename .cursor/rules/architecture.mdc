@@ -5,12 +5,9 @@ alwaysApply: true
 
 # Architecture
 
-Read `AGENTS.md` for full context. Key rules:
+`AGENTS.md` is the source of truth for this repo — read it before substantive changes.
 
-- `src/api/` = HTTP clients + serde DTOs only. No search, filtering, or app logic.
-- `src/soccar.rs` = domain logic on soccer API data (`find_team`, `full_time_score`, squad aggregation).
-- `src/db/<entity>.rs` = one persistence module per table; `db/mod.rs` re-exports only.
-- Commands use `Season::default_for_guild()`; poller uses `Season::list_all_with_meta()` for all seasons.
-- Use `data.soccar_api()` — never pass `http` + `api_token` separately.
+Quick guardrails (details and examples in `AGENTS.md`):
 
-New external API → `src/api/<name>.rs`, re-export from `api/mod.rs`.
+- Layers: `api` → `soccar` → `db` → use cases → `commands`
+- `data.soccar_api()` at call sites; `Season::default_for_guild()` in gameplay commands

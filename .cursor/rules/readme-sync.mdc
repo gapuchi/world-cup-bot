@@ -27,7 +27,7 @@ Slash command names, options, and permissions are documented via command docstri
 | Change | README section |
 |--------|----------------|
 | New command | Command docstring in `src/commands/` (shown by `/help`) |
-| Config / league pool behavior | **Configuration** |
+| Config / league season behavior | **Configuration** |
 | Points or tie-breakers | **Leagues → World Cup** |
 | Env vars | **Environment variables** table + `.env.example` |
 | Dev workflow | **Local development** |
