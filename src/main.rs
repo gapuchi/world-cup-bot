@@ -38,22 +38,7 @@ async fn main() {
                 case_insensitive_commands: true,
                 ..Default::default()
             },
-            commands: vec![
-                commands::ping(),
-                commands::version(),
-                commands::help(),
-                commands::register(),
-                commands::config(),
-                commands::claim(),
-                commands::assign(),
-                commands::unclaim(),
-                commands::my_team(),
-                commands::teams(),
-                commands::unclaimed(),
-                commands::standings(),
-                commands::pick_player(),
-                commands::season(),
-            ],
+            commands: commands::all(),
             ..Default::default()
         })
         .setup({

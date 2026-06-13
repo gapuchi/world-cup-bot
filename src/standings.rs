@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::{
     db::{Pool, Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
-    scoring,
+    scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
 };
 
 pub struct StandingRow {
@@ -99,6 +99,49 @@ pub fn get_standings(conn: &Connection, pool_id: i64) -> rusqlite::Result<Vec<St
             .then_with(|| a.user_id.cmp(&b.user_id))
     });
     Ok(rows)
+}
+
+pub fn standings_footer() -> String {
+    format!("Win {WIN_POINTS} · Draw {DRAW_POINTS} · Loss {LOSS_POINTS} · TB = tie-breaker goals")
+}
+
+pub fn format_standing_summary(rank: usize, row: &StandingRow) -> String {
+    format!(
+        "**{rank}** · <@{}> — **{}** pts",
+        row.user_id, row.points,
+    )
+}
+
+pub fn format_standing_detail(rank: usize, row: &StandingRow) -> String {
+    let mut line = format_standing_summary(rank, row);
+    for (team_name, points) in &row.teams {
+        line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
+    }
+    match &row.tiebreaker_player {
+        Some(player) => line.push_str(&format!(
+            "\n   • Tie-breaker: **{player}** — {} goals",
+            row.tiebreaker_goals
+        )),
+        None => line.push_str(&format!(
+            "\n   • Tie-breaker — {} goals",
+            row.tiebreaker_goals
+        )),
+    }
+    line
+}
+
+pub fn format_standings_summary_lines(rows: &[StandingRow], ranks: &[usize]) -> Vec<String> {
+    rows.iter()
+        .zip(ranks)
+        .map(|(row, rank)| format_standing_summary(*rank, row))
+        .collect()
+}
+
+pub fn format_standings_detail_lines(rows: &[StandingRow], ranks: &[usize]) -> Vec<String> {
+    rows.iter()
+        .zip(ranks)
+        .map(|(row, rank)| format_standing_detail(*rank, row))
+        .collect()
 }
 
 pub fn standings_ranks(rows: &[StandingRow]) -> Vec<usize> {

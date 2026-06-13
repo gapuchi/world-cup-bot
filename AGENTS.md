@@ -13,7 +13,15 @@ src/
   main.rs           # Entry point: env, DB init, Discord client, poller spawn
   lib.rs            # Module exports only
   types.rs          # Shared bot state (`Data`, `Context`, `Error`)
-  commands.rs       # Poise slash/prefix commands
+  registration.rs   # Team claim/unclaim use cases (DB + soccer API)
+  wc/               # World Cup gameplay use cases (tie-breaker pick, season)
+  commands/         # Poise slash/prefix handlers (thin Discord adapters)
+    mod.rs          # `all()` command registry
+    meta.rs         # ping, version, help, register
+    config.rs       # `/config` subcommands
+    registration.rs # claim, assign, unclaim, teams, …
+    wc/             # pick-player, standings, season
+    nfl/            # placeholder for future NFL commands
   poller.rs         # Background job: polls all pools, posts announcements
   scoring.rs        # Match points (win/draw/loss)
   standings.rs      # Leaderboard ranking and tie-breakers
@@ -77,7 +85,7 @@ Each Discord guild has independent gameplay data. Tenancy is scoped at **pool** 
 | `Pool::get_or_create_for_league(conn, guild_id, slug)` | `db/pool.rs` | Lazy pool creation per guild + league |
 | `Pool::list_with_league(conn, guild_id)` | `db/pool.rs` | Pools configured in one guild |
 | `Pool::list_all_with_meta()` | `db/pool.rs` | All pools for the poller |
-| `/config league <slug>` | `commands.rs` | Set default pool for invoking guild |
+| `/config league <slug>` | `commands/config.rs` | Set default pool for invoking guild |
 
 Rules:
 
@@ -96,7 +104,7 @@ Introduced in the "Multi League Support" refactor. Key concepts:
 | `default_pool_id` | `guild_config` | Per-guild default; set by `/config league` |
 | `Pool::get_or_create_for_league()` | `db/pool.rs` | Creates pool for guild + league on demand |
 | `PoolMeta` | `db/pool.rs` | Pool + league slug + `external_season_id` |
-| `/config league <slug>` | `commands.rs` | Switch default pool within a guild |
+| `/config league <slug>` | `commands/config.rs` | Switch default pool within a guild |
 
 Rules:
 
@@ -132,7 +140,7 @@ Import types from `crate::api`, domain helpers from `crate::soccar`.
 
 | Task | Where to change |
 |------|-----------------|
-| New slash command | `commands.rs`, register in `main.rs`, update `README.md` |
+| New slash command | `commands/` (or `registration.rs` / `wc/` for logic), add to `commands::all()`, update `README.md` |
 | New DB table | `db/migrate.rs` + new module under `db/` or `db/<league>/` + re-export in `db/mod.rs` |
 | New football-data endpoint | `api/football_data.rs` + domain logic in `soccar.rs` if needed |
 | New league poller | `poller.rs` match arm on `league_slug` + `db/league.rs` catalog |

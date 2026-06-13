@@ -1,6 +1,6 @@
 ---
 description: Keep README.md in sync with user-facing behavior
-globs: src/commands.rs,src/main.rs,src/scoring.rs,src/standings.rs,src/poller.rs,.env.example,README.md
+globs: src/commands/**,src/main.rs,src/scoring.rs,src/standings.rs,src/poller.rs,.env.example,README.md
 alwaysApply: false
 ---
 
