@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use rand::seq::SliceRandom;
 
 use crate::{
-    db::{Draft, DraftParticipant, DraftStatus, Registration, Season, WcTiebreakerPick},
+    db::{Draft, DraftParticipant, DraftStatus, NflTiebreakerPick, Registration, Season, WcTiebreakerPick, NFL_LEAGUE_SLUG},
     types::{Data, Error},
 };
 
@@ -63,8 +63,8 @@ pub async fn start(
     let conn = data.db.lock().await;
     let season = Season::default_for_guild(&conn, guild_id)?;
     let league_slug = Season::league_slug_for(&conn, season.id)?;
-    if league_slug != "wc" {
-        return Err("Drafts are only supported for World Cup seasons.".into());
+    if league_slug != "wc" && league_slug != NFL_LEAGUE_SLUG {
+        return Err(format!("Drafts are not supported for \"{league_slug}\" seasons yet.").into());
     }
     if Draft::get(&conn, season.id)?.is_some() {
         return Err("A draft already exists for this season. Cancel it first with `/draft cancel`.".into());
@@ -123,11 +123,23 @@ pub async fn cancel(data: &Data, guild_id: u64) -> Result<(), Error> {
         return Err("No draft is configured for this season.".into());
     };
     if draft.status == DraftStatus::Active || draft.status == DraftStatus::Complete {
-        WcTiebreakerPick::delete_all_for_season(&conn, season.id)?;
+        let league_slug = Season::league_slug_for(&conn, season.id)?;
+        clear_tiebreaker_picks(&conn, season.id, &league_slug)?;
         Registration::delete_all_for_season(&conn, season.id)?;
         Draft::delete(&conn, season.id)?;
     }
     Ok(())
+}
+
+fn clear_tiebreaker_picks(
+    conn: &rusqlite::Connection,
+    season_id: i64,
+    league_slug: &str,
+) -> rusqlite::Result<()> {
+    match league_slug {
+        slug if slug == NFL_LEAGUE_SLUG => NflTiebreakerPick::delete_all_for_season(conn, season_id),
+        _ => WcTiebreakerPick::delete_all_for_season(conn, season_id),
+    }
 }
 
 pub async fn advance_after_pick(data: &Data, guild_id: u64) -> Result<TurnChange, Error> {
@@ -215,7 +227,7 @@ mod tests {
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         db::init(&conn).unwrap();
-        let season = Season::get_or_create(&conn, 1, "wc", "wc-2026", "World Cup 2026").unwrap();
+        let season = Season::get_or_create(&conn, 1, "wc", "wc-2026", "World Cup 2026", 2026).unwrap();
         GuildConfig::set_default_season_id(&conn, 1, season.id).unwrap();
         conn
     }

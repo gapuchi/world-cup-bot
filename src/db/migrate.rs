@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS seasons (
     league_id               INTEGER NOT NULL REFERENCES leagues(id),
     slug                    TEXT NOT NULL,
     name                    TEXT NOT NULL,
+    season_year             INTEGER NOT NULL,
     announce_channel_id     INTEGER,
     starts_at               TEXT,
     ends_at                 TEXT,
@@ -209,6 +210,10 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         migrate_v5_draft_tables(conn)?;
     }
 
+    if version < 6 {
+        migrate_v6_season_year(conn)?;
+    }
+
     conn.execute_batch(CREATE_SCHEMA)?;
 
     if version < SCHEMA_VERSION {
@@ -264,6 +269,17 @@ fn migrate_v5_draft_tables(conn: &Connection) -> rusqlite::Result<()> {
         );
         ",
     )?;
+    Ok(())
+}
+
+fn migrate_v6_season_year(conn: &Connection) -> rusqlite::Result<()> {
+    if table_exists(conn, "seasons")? && !column_exists(conn, "seasons", "season_year")? {
+        conn.execute(
+            "ALTER TABLE seasons ADD COLUMN season_year INTEGER NOT NULL DEFAULT 2026",
+            [],
+        )?;
+        conn.execute("UPDATE seasons SET season_year = 2026 WHERE season_year IS NULL", [])?;
+    }
     Ok(())
 }
 

@@ -1,4 +1,5 @@
 pub mod api;
+pub mod gridiron;
 pub mod soccar;
 pub mod commands;
 pub mod db;
@@ -8,4 +9,5 @@ pub mod registration;
 pub mod scoring;
 pub mod standings;
 pub mod types;
+pub mod nfl;
 pub mod wc;

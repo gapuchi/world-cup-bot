@@ -1,0 +1,26 @@
+{
+  "sports": [
+    {
+      "leagues": [
+        {
+          "teams": [
+            {
+              "team": {
+                "id": "21",
+                "displayName": "Philadelphia Eagles",
+                "abbreviation": "PHI"
+              }
+            },
+            {
+              "team": {
+                "id": "6",
+                "displayName": "Dallas Cowboys",
+                "abbreviation": "DAL"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

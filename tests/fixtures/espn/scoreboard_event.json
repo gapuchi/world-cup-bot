@@ -1,0 +1,32 @@
+{
+  "id": "401772510",
+  "status": {
+    "type": {
+      "completed": true
+    }
+  },
+  "competitions": [
+    {
+      "competitors": [
+        {
+          "homeAway": "home",
+          "score": "34",
+          "team": {
+            "id": "21",
+            "displayName": "Philadelphia Eagles",
+            "abbreviation": "PHI"
+          }
+        },
+        {
+          "homeAway": "away",
+          "score": "29",
+          "team": {
+            "id": "6",
+            "displayName": "Dallas Cowboys",
+            "abbreviation": "DAL"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -44,11 +44,11 @@ fn parse_user_mentions(text: &str) -> Vec<u64> {
     ids
 }
 
-/// Pick a World Cup nation during your draft turn
+/// Pick a team during your draft turn
 #[poise::command(prefix_command, slash_command, guild_only, rename = "pick")]
 pub async fn draft_pick(
     ctx: Context<'_>,
-    #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
+    #[description = "Team name or abbreviation (e.g. Brazil, BRA, PHI)"] team: String,
 ) -> Result<(), Error> {
     ctx.defer().await?;
     let guild_id = guild_id(&ctx)?;
@@ -74,7 +74,7 @@ pub async fn draft_pick(
 )]
 pub async fn draft_start(
     ctx: Context<'_>,
-    #[description = "Number of rounds (teams per participant)"] rounds: u32,
+    #[description = "Number of rounds (default 1 for NFL; required for World Cup)"] rounds: Option<u32>,
     #[description = "Mention draft participants (@user1 @user2 ...)"]
     #[rest]
     participants: String,
@@ -89,7 +89,9 @@ pub async fn draft_start(
         return Ok(());
     }
 
-    match draft::start(ctx.data(), guild_id, member_ids, rounds as i64).await {
+    let rounds = resolve_rounds(ctx.data(), guild_id, rounds).await?;
+
+    match draft::start(ctx.data(), guild_id, member_ids, rounds).await {
         Ok((view, turn_change)) => {
             let order = draft::format_order(&view.participants);
             let start_message = format!(
@@ -196,7 +198,7 @@ pub async fn draft_status(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// World Cup draft
+/// Draft team assignments
 #[poise::command(
     prefix_command,
     slash_command,
@@ -211,6 +213,24 @@ pub async fn draft_status(ctx: Context<'_>) -> Result<(), Error> {
 )]
 pub async fn draft(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
+}
+
+async fn resolve_rounds(
+    data: &crate::types::Data,
+    guild_id: u64,
+    rounds: Option<u32>,
+) -> Result<i64, Error> {
+    if let Some(rounds) = rounds.filter(|&r| r > 0) {
+        return Ok(rounds as i64);
+    }
+
+    let conn = data.db.lock().await;
+    let season = crate::db::Season::default_for_guild(&conn, guild_id)?;
+    let league_slug = crate::db::Season::league_slug_for(&conn, season.id)?;
+    match league_slug.as_str() {
+        crate::db::NFL_LEAGUE_SLUG => Ok(1),
+        _ => Err("Specify the number of draft rounds for World Cup seasons.".into()),
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::migrate::WC_LEAGUE_SLUG;
+use super::migrate::{NFL_LEAGUE_SLUG, WC_LEAGUE_SLUG};
 
 pub fn id_for_slug(conn: &Connection, slug: &str) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
@@ -22,7 +22,7 @@ pub fn exists(conn: &Connection, slug: &str) -> rusqlite::Result<bool> {
 }
 
 pub fn supports_season(slug: &str) -> bool {
-    slug == WC_LEAGUE_SLUG
+    slug == WC_LEAGUE_SLUG || slug == NFL_LEAGUE_SLUG
 }
 
 pub fn competition_code(slug: &str) -> String {

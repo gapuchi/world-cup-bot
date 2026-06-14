@@ -5,7 +5,7 @@ fn standing_row(points: i64) -> StandingRow {
         user_id: 0,
         points,
         teams: vec![],
-        tiebreaker_goals: 0,
+        tiebreaker_stat: 0,
         tiebreaker_player: None,
     }
 }

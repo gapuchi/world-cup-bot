@@ -1,7 +1,6 @@
 mod config;
 mod helpers;
 mod meta;
-mod nfl;
 mod registration;
 mod wc;
 

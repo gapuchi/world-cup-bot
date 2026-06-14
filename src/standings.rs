@@ -1,138 +1,105 @@
-use std::collections::HashMap;
-
 use rusqlite::Connection;
 
 use crate::{
-    db::{Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
-    scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
+    db::Season,
+    scoring::{self, format_points, format_rules_footer, rules_for_league},
 };
 
 pub struct StandingRow {
     pub user_id: u64,
     pub points: i64,
     pub teams: Vec<(String, i64)>,
-    pub tiebreaker_goals: i64,
+    pub tiebreaker_stat: i64,
     pub tiebreaker_player: Option<String>,
 }
 
 pub fn user_points(conn: &Connection, season_id: i64, user_id: u64) -> rusqlite::Result<i64> {
-    let matches: Vec<_> = WcMatchResult::list_for_season(conn, season_id)?
-        .iter()
-        .map(WcMatchResult::as_finished_match)
-        .collect();
-    let registrations = Registration::list_for_user(conn, season_id, user_id)?;
-    let team_ids: Vec<i64> = registrations.iter().map(|r| r.team_id).collect();
-    Ok(scoring::points_for_teams(&team_ids, &matches))
+    let league_slug = Season::league_slug_for(conn, season_id)?;
+    let rules = rules_for_league(&league_slug);
+    match league_slug.as_str() {
+        "nfl" => crate::nfl::user_points(conn, season_id, user_id, &rules),
+        _ => crate::wc::user_points(conn, season_id, user_id, &rules),
+    }
 }
 
-pub fn tiebreaker_goals_for_user(
+pub fn tiebreaker_stat_for_user(
     conn: &Connection,
     season_id: i64,
     user_id: u64,
 ) -> rusqlite::Result<i64> {
-    let Some(pick) = WcTiebreakerPick::get_for_user(conn, season_id, user_id)? else {
-        return Ok(0);
-    };
-    WcPlayerGoalTotal::goals_for_player(conn, season_id, pick.player_id)
+    let league_slug = Season::league_slug_for(conn, season_id)?;
+    match league_slug.as_str() {
+        "nfl" => crate::nfl::tiebreaker_stat_for_user(conn, season_id, user_id),
+        _ => crate::wc::tiebreaker_stat_for_user(conn, season_id, user_id),
+    }
 }
 
 pub fn get_standings(conn: &Connection, season_id: i64) -> rusqlite::Result<Vec<StandingRow>> {
-    let matches: Vec<_> = WcMatchResult::list_for_season(conn, season_id)?
-        .iter()
-        .map(WcMatchResult::as_finished_match)
-        .collect();
-    let registrations = Registration::list_for_season(conn, season_id)?;
-
-    let mut by_user: HashMap<u64, (Vec<i64>, Vec<String>)> = HashMap::new();
-    for registration in registrations {
-        let entry = by_user.entry(registration.user_id).or_default();
-        entry.0.push(registration.team_id);
-        entry.1.push(registration.team_name);
+    let league_slug = Season::league_slug_for(conn, season_id)?;
+    let rules = rules_for_league(&league_slug);
+    match league_slug.as_str() {
+        "nfl" => crate::nfl::get_standings(conn, season_id, &rules),
+        _ => crate::wc::get_standings(conn, season_id, &rules),
     }
-
-    let mut rows: Vec<StandingRow> = by_user
-        .into_iter()
-        .map(|(user_id, (team_ids, team_names))| {
-            let pick = WcTiebreakerPick::get_for_user(conn, season_id, user_id)
-                .ok()
-                .flatten();
-            let tiebreaker_goals = pick
-                .as_ref()
-                .map(|pick| {
-                    WcPlayerGoalTotal::goals_for_player(conn, season_id, pick.player_id)
-                        .unwrap_or(0)
-                })
-                .unwrap_or(0);
-            let mut teams: Vec<(String, i64)> = team_ids
-                .iter()
-                .zip(&team_names)
-                .map(|(team_id, team_name)| {
-                    (
-                        team_name.clone(),
-                        scoring::points_for_team(*team_id, &matches),
-                    )
-                })
-                .collect();
-            teams.sort_by(|a, b| a.0.cmp(&b.0));
-            StandingRow {
-                user_id,
-                points: scoring::points_for_teams(&team_ids, &matches),
-                teams,
-                tiebreaker_goals,
-                tiebreaker_player: pick.map(|pick| pick.player_name),
-            }
-        })
-        .collect();
-
-    rows.sort_by(|a, b| {
-        b.points
-            .cmp(&a.points)
-            .then_with(|| b.tiebreaker_goals.cmp(&a.tiebreaker_goals))
-            .then_with(|| a.user_id.cmp(&b.user_id))
-    });
-    Ok(rows)
 }
 
-pub fn standings_footer() -> String {
-    format!("Win {WIN_POINTS} · Draw {DRAW_POINTS} · Loss {LOSS_POINTS} · TB = tie-breaker goals")
+pub fn standings_footer(league_slug: &str) -> String {
+    format_rules_footer(&rules_for_league(league_slug), league_slug)
 }
 
-pub fn format_standing_summary(rank: usize, row: &StandingRow) -> String {
+pub fn format_standing_summary(rank: usize, row: &StandingRow, league_slug: &str) -> String {
     format!(
         "**{rank}** · <@{}> — **{}** pts",
-        row.user_id, row.points,
+        row.user_id,
+        scoring::format_points(row.points, league_slug),
     )
 }
 
-pub fn format_standing_detail(rank: usize, row: &StandingRow) -> String {
-    let mut line = format_standing_summary(rank, row);
+pub fn format_standing_detail(rank: usize, row: &StandingRow, league_slug: &str) -> String {
+    let mut line = format_standing_summary(rank, row, league_slug);
     for (team_name, points) in &row.teams {
-        line.push_str(&format!("\n   • **{team_name}** — {points} pts"));
+        line.push_str(&format!(
+            "\n   • **{team_name}** — {} pts",
+            format_points(*points, league_slug)
+        ));
     }
+    let stat_label = if league_slug == "nfl" {
+        "touchdowns"
+    } else {
+        "goals"
+    };
     match &row.tiebreaker_player {
         Some(player) => line.push_str(&format!(
-            "\n   • Tie-breaker: **{player}** — {} goals",
-            row.tiebreaker_goals
+            "\n   • Tie-breaker: **{player}** — {} {stat_label}",
+            row.tiebreaker_stat
         )),
         None => line.push_str(&format!(
-            "\n   • Tie-breaker — {} goals",
-            row.tiebreaker_goals
+            "\n   • Tie-breaker — {} {stat_label}",
+            row.tiebreaker_stat
         )),
     }
     line
 }
 
-pub fn format_standings_summary_lines(rows: &[StandingRow], ranks: &[usize]) -> Vec<String> {
+pub fn format_standings_summary_lines(
+    rows: &[StandingRow],
+    ranks: &[usize],
+    league_slug: &str,
+) -> Vec<String> {
     rows.iter()
         .zip(ranks)
-        .map(|(row, rank)| format_standing_summary(*rank, row))
+        .map(|(row, rank)| format_standing_summary(*rank, row, league_slug))
         .collect()
 }
 
-pub fn format_standings_detail_lines(rows: &[StandingRow], ranks: &[usize]) -> Vec<String> {
+pub fn format_standings_detail_lines(
+    rows: &[StandingRow],
+    ranks: &[usize],
+    league_slug: &str,
+) -> Vec<String> {
     rows.iter()
         .zip(ranks)
-        .map(|(row, rank)| format_standing_detail(*rank, row))
+        .map(|(row, rank)| format_standing_detail(*rank, row, league_slug))
         .collect()
 }
 

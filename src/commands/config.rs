@@ -18,7 +18,7 @@ use super::helpers::guild_id;
 )]
 pub async fn config_league(
     ctx: Context<'_>,
-    #[description = "League slug (e.g. wc)"] league: String,
+    #[description = "League slug (e.g. wc, nfl)"] league: String,
 ) -> Result<(), Error> {
     let slug = league.trim().to_lowercase();
 
@@ -48,8 +48,8 @@ pub async fn config_league(
         GuildConfig::set_default_season_id(&conn, guild_id, season.id)?;
         let display = SeasonDisplay::for_season(&conn, season.id)?;
         format!(
-            "Active league set to **{}** — tracking **{}** (`{}`).",
-            display.league_name, display.name, display.slug
+            "Active league set to **{}** — tracking **{}** (`{}`, {}).",
+            display.league_name, display.name, display.slug, display.season_year
         )
     };
 
@@ -87,8 +87,11 @@ pub async fn config_leagues(ctx: Context<'_>) -> Result<(), Error> {
             let active = default_season_id == Some(entry.season.id);
             let marker = if active { " (active)" } else { "" };
             format!(
-                "**{}** — **{}** (`{}`){marker}",
-                entry.league_name, entry.season.name, entry.season.slug
+                "**{}** — **{}** (`{}`, {}){marker}",
+                entry.league_name,
+                entry.season.name,
+                entry.season.slug,
+                entry.season.season_year
             )
         })
         .collect();
@@ -136,9 +139,10 @@ pub async fn config_channel(
 )]
 pub async fn config_season(
     ctx: Context<'_>,
-    #[description = "League slug (e.g. wc)"] league: String,
-    #[description = "Season slug (e.g. wc-2026)"] slug: String,
+    #[description = "League slug (e.g. wc, nfl)"] league: String,
+    #[description = "Season slug (e.g. wc-2026, nfl-2025)"] slug: String,
     #[description = "Display name (e.g. World Cup 2026)"] name: String,
+    #[description = "Season year for match data (e.g. 2026)"] season_year: i64,
 ) -> Result<(), Error> {
     let league_slug = league.trim().to_lowercase();
     let season_slug = slug.trim().to_lowercase();
@@ -146,6 +150,11 @@ pub async fn config_season(
 
     if season_name.is_empty() {
         ctx.say("Season name is required.").await?;
+        return Ok(());
+    }
+
+    if !(2000..=2100).contains(&season_year) {
+        ctx.say("Season year must be between 2000 and 2100.").await?;
         return Ok(());
     }
 
@@ -171,11 +180,12 @@ pub async fn config_season(
             &league_slug,
             &season_slug,
             season_name,
+            season_year,
         )?;
         GuildConfig::set_default_season_id(&conn, guild_id, season.id)?;
         let display = SeasonDisplay::for_season(&conn, season.id)?;
         format!(
-            "Created season for **{}** — tracking **{}** (`{}`). Set `/config channel` for announcements.",
+            "Created season for **{}** — tracking **{}** (`{}`, {season_year}). Set `/config channel` for announcements.",
             display.league_name, display.name, display.slug
         )
     };

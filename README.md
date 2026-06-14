@@ -1,13 +1,13 @@
 # World Cup Bot
 
-Discord bot for sports prediction pools. Each member is assigned nations through a snake draft; when an assigned team's match finishes, the bot awards points and posts an announcement in a configured channel.
+Discord bot for sports prediction pools. Each member is assigned teams through a snake draft; when an assigned team's game finishes, the bot awards points and posts an announcement in a configured channel.
 
-The bot can serve **multiple Discord servers** at once. Each server has its own draft, team assignments, standings, announcement channel, and league selection. World Cup is fully supported today; NFL and NBA pools are coming soon.
+The bot can serve **multiple Discord servers** at once. Each server has its own draft, team assignments, standings, announcement channel, and league selection. World Cup and NFL are supported today; NBA is planned.
 
 ## Setup
 
 1. Create a [Discord application](https://discord.com/developers/applications) and bot token.
-2. Get a free API token from [football-data.org](https://www.football-data.org/client/register).
+2. Get a free API token from [football-data.org](https://www.football-data.org/client/register) (World Cup only).
 3. Copy `.env.example` to `.env` and fill in the values.
 4. Invite the bot to your server. In the [Discord Developer Portal](https://discord.com/developers/applications) → **OAuth2** → **URL Generator**, select:
    - **Scopes:** `bot`, `applications.commands`
@@ -30,12 +30,16 @@ Slash commands are registered automatically in each guild the bot joins on start
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DISCORD_TOKEN` | yes | Discord bot token |
-| `FOOTBALL_DATA_API_TOKEN` | yes | football-data.org API token |
+| `FOOTBALL_DATA_API_TOKEN` | yes | football-data.org API token (World Cup) |
 | `DATABASE_PATH` | no | SQLite database path (default: `world_cup.db`) |
+
+NFL data comes from ESPN's public site API and needs no extra token.
 
 ## Configuration
 
 Each Discord server configures the bot independently. On a **new** server, an admin must create a season first — there is no default until `/config season` has been run in that server. Run `/help config` for subcommands.
+
+`/config season` requires a **season year** (e.g. `2026` for World Cup 2026, `2025` for NFL 2025) so the poller knows which calendar year to fetch.
 
 Match announcements are only sent after `/config channel` has been set for that season. Each season keeps its own channel, registrations, scores, and tie-breaker picks. Gameplay commands always target the default season for the server where the command was run.
 
@@ -51,7 +55,7 @@ Run `/help` to list all commands, or `/help <command>` for details (e.g. `/help 
 
 Admins run a **snake draft** to assign nations. Each nation can only be assigned to one person; a person can hold multiple nations (one per draft round). When an assigned team's match finishes, the bot awards points and posts an announcement in the configured channel.
 
-**Draft** — an admin starts with `/draft start` (participants + round count). Pick order is randomized. Only the member on the clock can use `/draft pick`. Admins can `/draft skip`, `/assign`, `/unassign`, or `/draft cancel` (cancelling removes all assignments). When all picks are in, rosters lock.
+**Draft** — an admin starts with `/draft start <rounds> @participants`. Pick order is randomized. Only the member on the clock can use `/draft pick`. Admins can `/draft skip`, `/assign`, `/unassign`, or `/draft cancel` (cancelling removes all assignments). When all picks are in, rosters lock.
 
 **Scoring** — points per match based on the result for each assigned team:
 
@@ -67,7 +71,19 @@ The background poller runs every 5 minutes, fetching finished matches and scorer
 
 ### NFL (`nfl`)
 
-Coming soon.
+Same draft flow as World Cup. `/draft start` defaults to **1 round** (one team per person) when the active season is NFL; admins can pass a higher round count to override.
+
+**Scoring** — points per finished game for each assigned team:
+
+| Result | Points |
+|--------|--------|
+| Win    | 1      |
+| Tie    | ½      |
+| Loss   | 0      |
+
+**Tie-breaker** — total **touchdowns** by your designated player (regular season + playoffs). Use `/pick-player` to choose from your team's roster.
+
+The poller fetches finished games and touchdown leaders from ESPN (regular season and playoffs). No API key required.
 
 ### NBA (`nba`)
 

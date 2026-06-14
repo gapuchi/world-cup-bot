@@ -7,7 +7,7 @@
 
 ## Project overview
 
-Discord bot (Rust, poise + serenity) for sports prediction pools. World Cup is live; NFL planned. SQLite persistence; match data from [football-data.org](https://www.football-data.org/).
+Discord bot (Rust, poise + serenity) for sports prediction pools. World Cup and NFL are live; NBA planned. SQLite persistence; match data from [football-data.org](https://www.football-data.org/) (WC) and ESPN's public site API (NFL).
 
 ## Layer boundaries
 
@@ -17,8 +17,9 @@ Strict layers — details when editing matching paths are in `.cursor/rules/`:
 |-------|------|
 | `src/api/` | HTTP clients + serde DTOs only; 1:1 with endpoints |
 | `src/soccar.rs` | Soccer domain logic on API data (search, scores, squads) |
+| `src/gridiron.rs` | NFL domain logic on ESPN data (search, scores, rosters) |
 | `src/db/` | Persistence accessors; one module per entity; no HTTP/Discord |
-| Use cases (`registration.rs`, `wc/`, `standings.rs`, `scoring.rs`, `poller.rs`) | Orchestration, game rules, background jobs |
+| Use cases (`registration.rs`, `draft.rs`, `wc/`, `nfl/`, `standings.rs`, `scoring.rs`, `poller.rs`) | Orchestration, game rules, background jobs |
 | `src/commands/` | Thin Discord adapters only |
 
 **Command adapters vs use cases** — commands handle poise attrs, `guild_id`, defer/reply; use cases resolve season, call `db/` and `soccar_api()`, return strings.
@@ -27,7 +28,9 @@ Strict layers — details when editing matching paths are in `.cursor/rules/`:
 |---------|---------|----------|
 | Registration | `commands/registration.rs` | `registration.rs` |
 | WC gameplay | `commands/wc/` | `wc/` |
+| NFL gameplay | `commands/wc/` (shared commands) | `nfl/` |
 | Standings | `commands/wc/standings.rs` | `standings.rs` |
+| Draft | `commands/wc/draft.rs` | `draft.rs` |
 | Config | `commands/config.rs` | inline DB (small, admin-only) |
 
 New behavior: use case first → thin handler in `commands/` → `commands::all()`.
@@ -54,8 +57,10 @@ Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_
 ## Key patterns
 
 - `ctx.data().soccar_api()` or `data.soccar_api()` — never pass `http` + `api_token` separately
-- Types from `crate::api`; domain helpers from `crate::soccar`
-- Competition code from `league_competition_code()` via league slug
+- `ctx.data().espn_api()` or `data.espn_api()` — NFL; no token
+- Types from `crate::api`; domain helpers from `crate::soccar` or `crate::gridiron`
+- Competition code from `league_competition_code()` via league slug (WC only)
+- NFL seasons use `season.season_year` for ESPN queries
 
 ## Repo conventions
 
@@ -69,8 +74,8 @@ Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_
 |------|-------|
 | New command | Use case module → `commands/` handler → `commands::all()` → docstring |
 | New DB table | `migrate.rs` + `db/` or `db/<league>/` module → re-export in `db/mod.rs` |
-| New API endpoint | `api/football_data.rs` + `soccar.rs` if needed |
-| New league poller | `poller.rs` match on `league_slug` + `db/league.rs` |
+| New API endpoint | `api/football_data.rs` or `api/espn.rs` + domain module if needed |
+| New league poller | `poller.rs` match on `league_slug` + `db/<league>/` |
 | Scoring / tie-breakers | `scoring.rs`, `standings.rs`; update `README.md` if user-visible |
 | Setup / config UX | `README.md` (see `readme-sync.mdc`) |
 

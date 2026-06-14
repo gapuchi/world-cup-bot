@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
-use crate::api::FootballDataApi;
+use crate::api::{EspnApi, FootballDataApi};
 
 #[derive(Clone)]
 pub struct Data {
@@ -15,6 +15,10 @@ pub struct Data {
 impl Data {
     pub fn soccar_api(&self) -> FootballDataApi {
         FootballDataApi::new(self.http.clone(), &self.api_token)
+    }
+
+    pub fn espn_api(&self) -> EspnApi {
+        EspnApi::new(self.http.clone())
     }
 }
 

@@ -72,9 +72,9 @@ fn get_or_create_scopes_by_guild() {
     let guild_b = 222_u64;
 
     let season_a =
-        Season::get_or_create(&conn, guild_a, "wc", "wc-2026", "World Cup 2026").unwrap();
+        Season::get_or_create(&conn, guild_a, "wc", "wc-2026", "World Cup 2026", 2026).unwrap();
     let season_b =
-        Season::get_or_create(&conn, guild_b, "wc", "wc-2026", "World Cup 2026").unwrap();
+        Season::get_or_create(&conn, guild_b, "wc", "wc-2026", "World Cup 2026", 2026).unwrap();
 
     assert_ne!(season_a.id, season_b.id);
     assert_eq!(season_a.guild_id, guild_a);
@@ -447,4 +447,53 @@ fn migration_v5_adds_draft_tables() {
     use world_cup_bot::db::Draft;
     Draft::create_active(&conn, 1, 2, 6, &[(10, 0), (20, 1), (30, 2)]).unwrap();
     assert_eq!(Draft::current_picker(&conn, 1).unwrap(), Some(10));
+}
+
+#[test]
+fn migration_v6_adds_season_year() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        INSERT INTO schema_version (version) VALUES (5);
+        CREATE TABLE leagues (
+            id INTEGER PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            sport TEXT NOT NULL
+        );
+        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
+        CREATE TABLE seasons (
+            id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            slug TEXT NOT NULL,
+            name TEXT NOT NULL,
+            announce_channel_id INTEGER,
+            starts_at TEXT,
+            ends_at TEXT,
+            UNIQUE (guild_id, league_id, slug)
+        );
+        INSERT INTO seasons (id, guild_id, league_id, slug, name)
+        VALUES (1, 111, 1, 'wc-2026', 'World Cup 2026');
+        CREATE TABLE guild_config (
+            guild_id INTEGER PRIMARY KEY,
+            default_season_id INTEGER NOT NULL REFERENCES seasons(id)
+        );
+        INSERT INTO guild_config (guild_id, default_season_id) VALUES (111, 1);
+        ",
+    )
+    .unwrap();
+
+    db::init(&conn).unwrap();
+
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+
+    let season_year: i64 = conn
+        .query_row("SELECT season_year FROM seasons WHERE id = 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(season_year, 2026);
 }

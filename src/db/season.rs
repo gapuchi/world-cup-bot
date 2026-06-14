@@ -8,6 +8,7 @@ pub struct Season {
     pub league_id: i64,
     pub slug: String,
     pub name: String,
+    pub season_year: i64,
     pub announce_channel_id: Option<u64>,
 }
 
@@ -27,13 +28,14 @@ pub struct SeasonDisplay {
     pub league_name: String,
     pub name: String,
     pub slug: String,
+    pub season_year: i64,
 }
 
 impl Season {
     pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Self>> {
         conn.query_row(
             "
-            SELECT id, guild_id, league_id, slug, name, announce_channel_id
+            SELECT id, guild_id, league_id, slug, name, season_year, announce_channel_id
             FROM seasons
             WHERE id = ?1
             ",
@@ -63,6 +65,7 @@ impl Season {
                 s.league_id,
                 s.slug,
                 s.name,
+                s.season_year,
                 s.announce_channel_id,
                 l.slug,
                 l.name
@@ -73,9 +76,9 @@ impl Season {
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(SeasonMeta {
-                season: season_from_row(row, 0, 1, 2, 3, 4, 5)?,
-                league_slug: row.get(6)?,
-                league_name: row.get(7)?,
+                season: row_from(row)?,
+                league_slug: row.get(7)?,
+                league_name: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -88,7 +91,7 @@ impl Season {
     ) -> rusqlite::Result<Option<Self>> {
         conn.query_row(
             "
-            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id
+            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.season_year, s.announce_channel_id
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.guild_id = ?1 AND l.slug = ?2
@@ -107,6 +110,7 @@ impl Season {
         league_slug: &str,
         slug: &str,
         name: &str,
+        season_year: i64,
     ) -> rusqlite::Result<Self> {
         if let Some(season) = Self::get_by_guild_league_slug(conn, guild_id, league_slug, slug)? {
             return Ok(season);
@@ -117,10 +121,10 @@ impl Season {
 
         conn.execute(
             "
-            INSERT INTO seasons (guild_id, league_id, slug, name)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO seasons (guild_id, league_id, slug, name, season_year)
+            VALUES (?1, ?2, ?3, ?4, ?5)
             ",
-            params![guild_id as i64, league_id, slug, name],
+            params![guild_id as i64, league_id, slug, name, season_year],
         )?;
         Self::get(conn, conn.last_insert_rowid())?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
@@ -143,7 +147,7 @@ impl Season {
     ) -> rusqlite::Result<Vec<SeasonLeague>> {
         let mut stmt = conn.prepare(
             "
-            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id, l.slug, l.name
+            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.season_year, s.announce_channel_id, l.slug, l.name
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.guild_id = ?1
@@ -152,9 +156,9 @@ impl Season {
         )?;
         let rows = stmt.query_map(params![guild_id as i64], |row| {
             Ok(SeasonLeague {
-                season: season_from_row(row, 0, 1, 2, 3, 4, 5)?,
-                league_slug: row.get(6)?,
-                league_name: row.get(7)?,
+                season: row_from(row)?,
+                league_slug: row.get(7)?,
+                league_name: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -189,7 +193,7 @@ impl Season {
     ) -> rusqlite::Result<Option<Self>> {
         conn.query_row(
             "
-            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id
+            SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.season_year, s.announce_channel_id
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.guild_id = ?1 AND l.slug = ?2 AND s.slug = ?3
@@ -205,7 +209,7 @@ impl SeasonDisplay {
     pub fn for_season(conn: &Connection, season_id: i64) -> rusqlite::Result<Self> {
         conn.query_row(
             "
-            SELECT l.name, s.name, s.slug
+            SELECT l.name, s.name, s.slug, s.season_year
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.id = ?1
@@ -216,32 +220,26 @@ impl SeasonDisplay {
                     league_name: row.get(0)?,
                     name: row.get(1)?,
                     slug: row.get(2)?,
+                    season_year: row.get(3)?,
                 })
             },
         )
     }
 }
 
-fn season_from_row(
-    row: &rusqlite::Row<'_>,
-    id_col: usize,
-    guild_col: usize,
-    league_col: usize,
-    slug_col: usize,
-    name_col: usize,
-    channel_col: usize,
-) -> rusqlite::Result<Season> {
-    let channel: Option<i64> = row.get(channel_col)?;
-    Ok(Season {
-        id: row.get(id_col)?,
-        guild_id: row.get::<_, i64>(guild_col)? as u64,
-        league_id: row.get(league_col)?,
-        slug: row.get(slug_col)?,
-        name: row.get(name_col)?,
-        announce_channel_id: channel.map(|id| id as u64),
-    })
+fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<Season> {
+    season_from_row(row)
 }
 
-fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<Season> {
-    season_from_row(row, 0, 1, 2, 3, 4, 5)
+fn season_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Season> {
+    let channel: Option<i64> = row.get(6)?;
+    Ok(Season {
+        id: row.get(0)?,
+        guild_id: row.get::<_, i64>(1)? as u64,
+        league_id: row.get(2)?,
+        slug: row.get(3)?,
+        name: row.get(4)?,
+        season_year: row.get(5)?,
+        announce_channel_id: channel.map(|id| id as u64),
+    })
 }
