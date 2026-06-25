@@ -14,7 +14,7 @@ pub use registration::Registration;
 pub use season::{Season, SeasonDisplay, SeasonMeta};
 pub use migrate::SCHEMA_VERSION;
 pub use wc::{
-    WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, WcTiebreakerPick,
+    WcAnnouncedElimination, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, WcTiebreakerPick,
 };
 
 pub fn init(conn: &Connection) -> rusqlite::Result<()> {

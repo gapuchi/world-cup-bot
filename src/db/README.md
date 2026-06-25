@@ -19,6 +19,7 @@ SQLite persistence for Discord prediction seasons. A **season** is one Discord g
 - **Registration** — A user claims a team in a season. One owner per team (`season_id`, `team_id`).
 - **Match result** — Finished game scores and metadata (`wc_match_results`, `nba_match_results`, `nfl_match_results`).
 - **Processed flag** — Idempotency marker for games the poller already announced and scored (`wc_processed_matches`, `nba_processed_games`, `nfl_processed_games`).
+- **Announced elimination** — Idempotency marker for teams the poller already posted as eliminated (`wc_announced_eliminations`).
 - **Tiebreaker pick** — One player pick per user per season for standings tie-breaks (`wc_tiebreaker_picks`, `nba_tiebreaker_picks`, `nfl_tiebreaker_picks`).
 - **Player stat total** — Cached player stats for tie-breakers (`wc_player_goal_totals`, `nba_player_points_totals`, `nfl_player_touchdown_totals`). Keyed by `(season_id, player_id)`.
 
@@ -33,6 +34,7 @@ erDiagram
     seasons ||--o{ registrations : has
     seasons ||--o{ wc_match_results : has
     seasons ||--o{ wc_processed_matches : has
+    seasons ||--o{ wc_announced_eliminations : has
     seasons ||--o{ wc_tiebreaker_picks : has
     seasons ||--o{ wc_player_goal_totals : has
     seasons ||--o{ nba_match_results : has

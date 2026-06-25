@@ -47,6 +47,16 @@ pub struct Team {
     pub tla: Option<String>,
 }
 
+/// Team slot on a match fixture. Knockout placeholders may have null id/name until teams are known.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchTeam {
+    pub id: Option<i64>,
+    pub name: Option<String>,
+    pub short_name: Option<String>,
+    pub tla: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScoreDetail {
@@ -64,10 +74,12 @@ pub struct Score {
 #[serde(rename_all = "camelCase")]
 pub struct Match {
     pub id: i64,
-    pub home_team: Team,
-    pub away_team: Team,
+    pub home_team: MatchTeam,
+    pub away_team: MatchTeam,
     pub score: Score,
+    pub status: Option<String>,
     pub stage: Option<String>,
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,6 +168,16 @@ impl FootballDataApi {
         competition: &str,
     ) -> Result<Vec<Match>, ApiError> {
         let path = format!("/competitions/{competition}/matches?status=FINISHED");
+        let response = self.get(&path).await?;
+        let body: MatchesResponse = response.json().await.map_err(ApiError::Request)?;
+        Ok(body.matches)
+    }
+
+    pub async fn fetch_competition_matches(
+        &self,
+        competition: &str,
+    ) -> Result<Vec<Match>, ApiError> {
+        let path = format!("/competitions/{competition}/matches");
         let response = self.get(&path).await?;
         let body: MatchesResponse = response.json().await.map_err(ApiError::Request)?;
         Ok(body.matches)

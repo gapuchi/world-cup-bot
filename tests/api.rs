@@ -1,27 +1,29 @@
 use world_cup_bot::{
-    api::{Match, Score, ScoreDetail, Team},
+    api::{Match, MatchTeam, Score, ScoreDetail},
     soccar::full_time_score,
 };
 
 fn sample_match(home: Option<i64>, away: Option<i64>) -> Match {
     Match {
         id: 1,
-        home_team: Team {
-            id: 769,
-            name: "Mexico".into(),
+        home_team: MatchTeam {
+            id: Some(769),
+            name: Some("Mexico".into()),
             short_name: None,
             tla: None,
         },
-        away_team: Team {
-            id: 774,
-            name: "South Africa".into(),
+        away_team: MatchTeam {
+            id: Some(774),
+            name: Some("South Africa".into()),
             short_name: None,
             tla: None,
         },
         score: Score {
             full_time: ScoreDetail { home, away },
         },
+        status: Some("FINISHED".into()),
         stage: Some("GROUP_STAGE".into()),
+        group: Some("GROUP_A".into()),
     }
 }
 

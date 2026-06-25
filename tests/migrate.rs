@@ -379,3 +379,24 @@ fn migration_v4_rebinds_foreign_keys_after_pool_table_drop() {
     .upsert(&conn)
     .unwrap();
 }
+
+#[test]
+fn announced_elimination_tracks_per_season_team() {
+    let conn = Connection::open_in_memory().unwrap();
+    db::init(&conn).unwrap();
+
+    let season =
+        Season::get_or_create(&conn, 111, "wc", "wc-2026", "World Cup 2026").unwrap();
+
+    use world_cup_bot::db::WcAnnouncedElimination;
+
+    let announced = WcAnnouncedElimination::list_for_season(&conn, season.id).unwrap();
+    assert!(announced.is_empty());
+
+    WcAnnouncedElimination::mark(&conn, season.id, 769).unwrap();
+    WcAnnouncedElimination::mark(&conn, season.id, 769).unwrap();
+
+    let announced = WcAnnouncedElimination::list_for_season(&conn, season.id).unwrap();
+    assert_eq!(announced.len(), 1);
+    assert!(announced.contains(&769));
+}

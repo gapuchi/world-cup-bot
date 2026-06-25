@@ -8,7 +8,7 @@ mod wc;
 pub use config::{config, config_channel, config_league, config_leagues};
 pub use meta::{help, ping, register, version};
 pub use registration::{assign, claim, my_team, teams, unclaim, unclaimed};
-pub use wc::{pick_player, season, standings};
+pub use wc::{pick_player, remaining, season, standings};
 
 pub fn all() -> Vec<poise::Command<crate::types::Data, crate::types::Error>> {
     vec![
@@ -23,6 +23,7 @@ pub fn all() -> Vec<poise::Command<crate::types::Data, crate::types::Error>> {
         my_team(),
         teams(),
         unclaimed(),
+        remaining(),
         standings(),
         pick_player(),
         season(),

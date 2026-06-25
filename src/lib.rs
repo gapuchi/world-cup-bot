@@ -4,6 +4,7 @@ pub mod commands;
 pub mod db;
 pub mod poller;
 pub mod registration;
+pub mod remaining;
 pub mod scoring;
 pub mod standings;
 pub mod types;

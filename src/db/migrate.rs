@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS wc_processed_matches (
     season_id               INTEGER NOT NULL REFERENCES seasons(id),
     match_id                INTEGER NOT NULL,
     PRIMARY KEY (season_id, match_id)
+);
+
+CREATE TABLE IF NOT EXISTS wc_announced_eliminations (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    team_id                 INTEGER NOT NULL,
+    PRIMARY KEY (season_id, team_id)
 );
 
 CREATE TABLE IF NOT EXISTS wc_tiebreaker_picks (
@@ -187,6 +193,10 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
 
     if version < 4 {
         migrate_v4_rebind_season_foreign_keys(conn)?;
+    }
+
+    if version < 5 {
+        migrate_v5_add_announced_eliminations(conn)?;
     }
 
     conn.execute_batch(CREATE_SCHEMA)?;
@@ -863,6 +873,19 @@ fn migrate_player_totals_to_per_season(
         ALTER TABLE {temp} RENAME TO {table};
         "
     ))?;
+    Ok(())
+}
+
+fn migrate_v5_add_announced_eliminations(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS wc_announced_eliminations (
+            season_id               INTEGER NOT NULL REFERENCES seasons(id),
+            team_id                 INTEGER NOT NULL,
+            PRIMARY KEY (season_id, team_id)
+        );
+        ",
+    )?;
     Ok(())
 }
 

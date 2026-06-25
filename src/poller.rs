@@ -6,9 +6,12 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    api::Match,
-    db::{Registration, Season, SeasonMeta, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, league_competition_code},
-    soccar::full_time_score,
+    api::{Match, Team},
+    db::{
+        Registration, Season, SeasonMeta, WcAnnouncedElimination, WcMatchResult, WcPlayerGoalTotal,
+        WcProcessedMatch, league_competition_code,
+    },
+    soccar::{classify_teams, full_time_score, TeamRef},
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     standings,
     types::Data,
@@ -104,15 +107,23 @@ async fn poll_once(
     Ok(())
 }
 
+struct EliminationNotice {
+    team: TeamRef,
+    owner_id: Option<u64>,
+}
+
 async fn poll_wc(
     data: &Data,
     http: &serenity::Http,
     seasons: &[SeasonMeta],
     competition: &str,
 ) -> Result<(usize, usize, String), Box<dyn std::error::Error + Send + Sync>> {
-    let matches = data.soccar_api().fetch_finished_matches(competition).await?;
+    let api = data.soccar_api();
+    let matches = api.fetch_competition_matches(competition).await?;
+    let teams = api.fetch_teams(competition).await?;
+    let finished_matches: Vec<&Match> = matches.iter().filter(|m| is_finished_match(m)).collect();
 
-    let scorers_line = match data.soccar_api().fetch_scorers(competition).await {
+    let scorers_line = match api.fetch_scorers(competition).await {
         Ok(scorers) => {
             let count = scorers.len();
             let conn = data.db.lock().await;
@@ -152,7 +163,7 @@ async fn poll_wc(
     };
 
     for meta in seasons {
-        for m in &matches {
+        for m in &finished_matches {
             if let Err(error) = process_wc_match(data, http, meta, m).await {
                 eprintln!(
                     "Failed to process match {} for season {}: {error}",
@@ -161,14 +172,108 @@ async fn poll_wc(
                 );
             }
         }
+        if let Err(error) =
+            announce_new_eliminations(data, http, meta, &teams, &matches).await
+        {
+            eprintln!(
+                "Failed to announce eliminations for season {}: {error}",
+                meta.season.id
+            );
+        }
     }
 
-    let scored_matches = matches
-        .iter()
-        .filter(|m| full_time_score(m).is_some())
-        .count();
+    let scored_matches = finished_matches.len();
 
-    Ok((matches.len(), scored_matches, scorers_line))
+    Ok((finished_matches.len(), scored_matches, scorers_line))
+}
+
+fn is_finished_match(m: &Match) -> bool {
+    m.status.as_deref() == Some("FINISHED") && full_time_score(m).is_some()
+}
+
+async fn announce_new_eliminations(
+    data: &Data,
+    http: &serenity::Http,
+    meta: &SeasonMeta,
+    teams: &[Team],
+    matches: &[Match],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let season = &meta.season;
+    let classification = classify_teams(teams, matches);
+
+    let notices = {
+        let conn = data.db.lock().await;
+        let announced = WcAnnouncedElimination::list_for_season(&conn, season.id)?;
+        let mut notices = Vec::new();
+        for team in classification.eliminated {
+            if announced.contains(&team.id) {
+                continue;
+            }
+            let owner_id = Registration::get_by_team(&conn, season.id, team.id)?
+                .map(|registration| registration.user_id);
+            notices.push(EliminationNotice { team, owner_id });
+        }
+        notices
+    };
+
+    if notices.is_empty() {
+        return Ok(());
+    }
+
+    let Some(channel_id) = season.announce_channel_id else {
+        return Ok(());
+    };
+
+    post_elimination_announcement(http, channel_id, &notices).await?;
+
+    {
+        let conn = data.db.lock().await;
+        for notice in &notices {
+            WcAnnouncedElimination::mark(&conn, season.id, notice.team.id)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn post_elimination_announcement(
+    http: &serenity::Http,
+    channel_id: u64,
+    notices: &[EliminationNotice],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let title = if notices.len() == 1 {
+        format!("{} eliminated", notices[0].team.name)
+    } else {
+        "Teams eliminated".into()
+    };
+
+    let description = notices
+        .iter()
+        .map(format_elimination_line)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let embed = serenity::CreateEmbed::default()
+        .title(title)
+        .description(description)
+        .colour(serenity::Colour::DARK_RED);
+
+    serenity::ChannelId::new(channel_id)
+        .send_message(http, serenity::CreateMessage::new().embed(embed))
+        .await?;
+
+    Ok(())
+}
+
+fn format_elimination_line(notice: &EliminationNotice) -> String {
+    match notice.owner_id {
+        Some(user_id) => format!(
+            "{} — **{}** is out of the tournament.",
+            serenity::UserId::new(user_id).mention(),
+            notice.team.name
+        ),
+        None => format!("**{}** is out of the tournament.", notice.team.name),
+    }
 }
 
 fn wc_match_result_from_api(season_id: i64, m: &Match) -> Option<WcMatchResult> {
@@ -176,8 +281,8 @@ fn wc_match_result_from_api(season_id: i64, m: &Match) -> Option<WcMatchResult> 
     Some(WcMatchResult {
         season_id,
         match_id: m.id,
-        home_team_id: m.home_team.id,
-        away_team_id: m.away_team.id,
+        home_team_id: m.home_team.id?,
+        away_team_id: m.away_team.id?,
         home_goals,
         away_goals,
         stage: m.stage.clone(),
@@ -192,6 +297,13 @@ async fn process_wc_match(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let season = &meta.season;
     let Some((home_goals, away_goals)) = full_time_score(m) else {
+        return Ok(());
+    };
+
+    let Some(home_team_id) = m.home_team.id else {
+        return Ok(());
+    };
+    let Some(away_team_id) = m.away_team.id else {
         return Ok(());
     };
 
@@ -217,8 +329,8 @@ async fn process_wc_match(
         }
 
         let finished = scoring::FinishedMatch {
-            home_team_id: m.home_team.id,
-            away_team_id: m.away_team.id,
+            home_team_id,
+            away_team_id,
             home_goals,
             away_goals,
         };
@@ -226,7 +338,7 @@ async fn process_wc_match(
         let mut updates = Vec::new();
 
         if let Some(registration) =
-            Registration::get_by_team(&conn, season.id, m.home_team.id)?
+            Registration::get_by_team(&conn, season.id, home_team_id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
             let total = standings::user_points(&conn, season.id, registration.user_id)?;
@@ -239,7 +351,7 @@ async fn process_wc_match(
         }
 
         if let Some(registration) =
-            Registration::get_by_team(&conn, season.id, m.away_team.id)?
+            Registration::get_by_team(&conn, season.id, away_team_id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
             let total = standings::user_points(&conn, season.id, registration.user_id)?;
@@ -269,6 +381,9 @@ async fn process_wc_match(
         .as_deref()
         .unwrap_or(&meta.league_name);
 
+    let home_name = m.home_team.name.as_deref().unwrap_or("TBD");
+    let away_name = m.away_team.name.as_deref().unwrap_or("TBD");
+
     let mut description = String::new();
     if is_correction
         && let Some((prev_home, prev_away)) = previous_score
@@ -276,8 +391,7 @@ async fn process_wc_match(
         description.push_str(&format!("_Previous: {prev_home}–{prev_away}_\n\n"));
     }
     description.push_str(&format!(
-        "**{}** {score_line} **{}**\n\n",
-        m.home_team.name, m.away_team.name
+        "**{home_name}** {score_line} **{away_name}**\n\n",
     ));
 
     for update in &updates {
