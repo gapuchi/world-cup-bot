@@ -169,7 +169,8 @@ impl FootballDataApi {
     }
 
     pub async fn fetch_scorers(&self, competition: &str) -> Result<Vec<Scorer>, ApiError> {
-        let path = format!("/competitions/{competition}/scorers");
+        // football-data.org defaults to limit=10; tie-breaker picks may be outside the top ten.
+        let path = format!("/competitions/{competition}/scorers?limit=500");
         let response = self.get(&path).await?;
         let body: ScorersResponse = response.json().await.map_err(ApiError::Request)?;
         Ok(body
