@@ -112,17 +112,6 @@ async fn poll_wc(
 ) -> Result<(usize, usize, String), Box<dyn std::error::Error + Send + Sync>> {
     let matches = data.soccar_api().fetch_finished_matches(competition).await?;
 
-    {
-        let conn = data.db.lock().await;
-        for meta in seasons {
-            for m in &matches {
-                if let Some(result) = wc_match_result_from_api(meta.season.id, m) {
-                    result.upsert(&conn)?;
-                }
-            }
-        }
-    }
-
     let scorers_line = match data.soccar_api().fetch_scorers(competition).await {
         Ok(scorers) => {
             let count = scorers.len();
@@ -206,14 +195,25 @@ async fn process_wc_match(
         return Ok(());
     };
 
-    let updates = {
+    let (updates, is_correction, previous_score) = {
         let conn = data.db.lock().await;
+        let previous_score = WcMatchResult::score(&conn, season.id, m.id)?;
+
         if WcProcessedMatch::is_processed(&conn, season.id, m.id)? {
-            let stored = WcMatchResult::score(&conn, season.id, m.id)?;
-            if stored == Some((home_goals, away_goals)) {
+            if previous_score == Some((home_goals, away_goals)) {
+                if let Some(result) = wc_match_result_from_api(season.id, m) {
+                    result.upsert(&conn)?;
+                }
                 return Ok(());
             }
             WcProcessedMatch::unmark(&conn, season.id, m.id)?;
+        }
+
+        let is_correction =
+            previous_score.is_some() && previous_score != Some((home_goals, away_goals));
+
+        if let Some(result) = wc_match_result_from_api(season.id, m) {
+            result.upsert(&conn)?;
         }
 
         let finished = scoring::FinishedMatch {
@@ -251,14 +251,13 @@ async fn process_wc_match(
             });
         }
 
-        if updates.is_empty() {
-            WcProcessedMatch::mark(&conn, season.id, m.id)?;
-            return Ok(());
-        }
-
         WcProcessedMatch::mark(&conn, season.id, m.id)?;
-        updates
+        (updates, is_correction, previous_score)
     };
+
+    if updates.is_empty() {
+        return Ok(());
+    }
 
     let Some(channel_id) = season.announce_channel_id else {
         return Ok(());
@@ -270,10 +269,16 @@ async fn process_wc_match(
         .as_deref()
         .unwrap_or(&meta.league_name);
 
-    let mut description = format!(
-        "**{}** {} **{}**\n\n",
-        m.home_team.name, score_line, m.away_team.name
-    );
+    let mut description = String::new();
+    if is_correction
+        && let Some((prev_home, prev_away)) = previous_score
+    {
+        description.push_str(&format!("_Previous: {prev_home}–{prev_away}_\n\n"));
+    }
+    description.push_str(&format!(
+        "**{}** {score_line} **{}**\n\n",
+        m.home_team.name, m.away_team.name
+    ));
 
     for update in &updates {
         let mention = serenity::UserId::new(update.user_id).mention();
@@ -287,10 +292,21 @@ async fn process_wc_match(
         "\nScoring: win {WIN_POINTS}, draw {DRAW_POINTS}, loss {LOSS_POINTS}"
     ));
 
+    let title = if is_correction {
+        format!("{stage} — score corrected")
+    } else {
+        format!("{stage} — full time")
+    };
+    let colour = if is_correction {
+        serenity::Colour::GOLD
+    } else {
+        serenity::Colour::DARK_GREEN
+    };
+
     let embed = serenity::CreateEmbed::default()
-        .title(format!("{stage} — full time"))
+        .title(title)
         .description(description)
-        .colour(serenity::Colour::DARK_GREEN);
+        .colour(colour);
 
     let channel = serenity::ChannelId::new(channel_id);
     channel
