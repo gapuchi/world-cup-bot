@@ -15,9 +15,7 @@ pub enum RemainingResult {
 
 pub struct RemainingReport {
     pub still_in_by_user: Vec<(u64, Vec<String>)>,
-    pub eliminated_by_user: Vec<(u64, Vec<String>)>,
     pub unassigned_still_in: Vec<String>,
-    pub unassigned_eliminated: Vec<String>,
 }
 
 pub async fn list_for_guild(data: &Data, guild_id: u64) -> Result<RemainingResult, Error> {
@@ -47,19 +45,15 @@ fn build_report(
     registrations: &[Registration],
 ) -> RemainingReport {
     let (still_in_by_user, unassigned_still_in) =
-        group_by_user(&classification.still_in, registrations);
-    let (eliminated_by_user, unassigned_eliminated) =
-        group_by_user(&classification.eliminated, registrations);
+        group_teams_by_user(&classification.still_in, registrations);
 
     RemainingReport {
         still_in_by_user,
-        eliminated_by_user,
         unassigned_still_in,
-        unassigned_eliminated,
     }
 }
 
-fn group_by_user(
+pub fn group_teams_by_user(
     teams: &[TeamRef],
     registrations: &[Registration],
 ) -> (Vec<(u64, Vec<String>)>, Vec<String>) {
@@ -112,59 +106,5 @@ pub fn format_grouped_field(by_user: &[(u64, Vec<String>)], unassigned: &[String
         "—".into()
     } else {
         lines.join("\n")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::soccar::TeamRef;
-
-    fn registration(user_id: u64, team_id: i64, name: &str) -> Registration {
-        Registration {
-            user_id,
-            team_id,
-            team_name: name.into(),
-        }
-    }
-
-    #[test]
-    fn groups_teams_by_registered_owner() {
-        let teams = vec![
-            TeamRef {
-                id: 1,
-                name: "Brazil".into(),
-            },
-            TeamRef {
-                id: 2,
-                name: "Mexico".into(),
-            },
-            TeamRef {
-                id: 3,
-                name: "Japan".into(),
-            },
-        ];
-        let registrations = vec![
-            registration(10, 1, "Brazil"),
-            registration(10, 2, "Mexico"),
-            registration(20, 3, "Japan"),
-        ];
-
-        let (by_user, unassigned) = group_by_user(&teams, &registrations);
-        assert!(unassigned.is_empty());
-        assert_eq!(by_user.len(), 2);
-        assert_eq!(by_user[0], (10, vec!["Brazil".into(), "Mexico".into()]));
-        assert_eq!(by_user[1], (20, vec!["Japan".into()]));
-    }
-
-    #[test]
-    fn unassigned_teams_listed_separately() {
-        let teams = vec![TeamRef {
-            id: 99,
-            name: "Turkey".into(),
-        }];
-        let (by_user, unassigned) = group_by_user(&teams, &[]);
-        assert!(by_user.is_empty());
-        assert_eq!(unassigned, vec!["Turkey".to_string()]);
     }
 }

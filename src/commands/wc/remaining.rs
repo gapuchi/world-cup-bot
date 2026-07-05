@@ -7,7 +7,7 @@ use crate::{
 
 use super::super::helpers::guild_id;
 
-/// List World Cup teams still in the tournament and teams that have been eliminated
+/// List World Cup teams still in the tournament
 #[poise::command(prefix_command, slash_command, guild_only)]
 pub async fn remaining(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer().await?;
@@ -25,22 +25,10 @@ pub async fn remaining(ctx: Context<'_>) -> Result<(), Error> {
         RemainingResult::Report(report) => {
             let embed = serenity::CreateEmbed::default()
                 .title("World Cup teams remaining")
-                .field(
-                    "Still in",
-                    remaining::format_grouped_field(
-                        &report.still_in_by_user,
-                        &report.unassigned_still_in,
-                    ),
-                    false,
-                )
-                .field(
-                    "Eliminated",
-                    remaining::format_grouped_field(
-                        &report.eliminated_by_user,
-                        &report.unassigned_eliminated,
-                    ),
-                    false,
-                );
+                .description(remaining::format_grouped_field(
+                    &report.still_in_by_user,
+                    &report.unassigned_still_in,
+                ));
 
             ctx.send(poise::CreateReply::default().embed(embed)).await?;
         }
