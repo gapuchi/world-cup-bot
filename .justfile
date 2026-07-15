@@ -1,4 +1,8 @@
+alias u := update
 alias r := release
+
+update *inputs:
+    nix flake update {{inputs}}
 
 # Preview a version bump (dry run). level: patch | minor | major
 release-dry level="patch":
