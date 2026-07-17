@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::{season::Season, team, wc::WcTiebreakerPick};
+use super::{season::Season, team};
 
 pub struct Registration {
     pub user_id: u64,
@@ -37,7 +37,6 @@ impl Registration {
         user_id: u64,
         team_id: i64,
     ) -> rusqlite::Result<bool> {
-        WcTiebreakerPick::delete_for_team(conn, season_id, user_id, team_id)?;
         let changed = conn.execute(
             "DELETE FROM registrations WHERE season_id = ?1 AND user_id = ?2 AND team_id = ?3",
             params![season_id, user_id as i64, team_id],

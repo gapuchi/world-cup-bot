@@ -11,10 +11,11 @@ use crate::{
         Registration, Season, SeasonMeta, WcAnnouncedElimination, WcMatchResult, WcPlayerGoalTotal,
         WcProcessedMatch, league_competition_code,
     },
+    league::League,
     soccar::{classify_teams, full_time_score, TeamRef},
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
-    standings,
     types::Data,
+    wc,
 };
 
 struct MatchUpdate {
@@ -118,7 +119,7 @@ async fn poll_wc(
     seasons: &[SeasonMeta],
     competition: &str,
 ) -> Result<(usize, usize, String), Box<dyn std::error::Error + Send + Sync>> {
-    let api = data.soccar_api();
+    let api = wc::football_data(data);
     let matches = api.fetch_competition_matches(competition).await?;
     let teams = api.fetch_teams(competition).await?;
     let finished_matches: Vec<&Match> = matches.iter().filter(|m| is_finished_match(m)).collect();
@@ -335,13 +336,16 @@ async fn process_wc_match(
             away_goals,
         };
 
+        // process_wc_match only runs for World Cup seasons.
+        let league = League::Wc;
+
         let mut updates = Vec::new();
 
         if let Some(registration) =
             Registration::get_by_team(&conn, season.id, home_team_id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = standings::user_points(&conn, season.id, registration.user_id)?;
+            let total = league.user_points(&conn, season.id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,
@@ -354,7 +358,7 @@ async fn process_wc_match(
             Registration::get_by_team(&conn, season.id, away_team_id)?
         {
             let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = standings::user_points(&conn, season.id, registration.user_id)?;
+            let total = league.user_points(&conn, season.id, registration.user_id)?;
             updates.push(MatchUpdate {
                 user_id: registration.user_id,
                 team_name: registration.team_name,

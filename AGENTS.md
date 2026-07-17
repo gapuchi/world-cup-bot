@@ -21,13 +21,13 @@ Strict layers — details when editing matching paths are in `.cursor/rules/`:
 | Use cases (`registration.rs`, `wc/`, `standings.rs`, `scoring.rs`, `poller.rs`) | Orchestration, game rules, background jobs |
 | `src/commands/` | Thin Discord adapters only |
 
-**Command adapters vs use cases** — commands handle poise attrs, `guild_id`, defer/reply; use cases resolve season, call `db/` and `soccar_api()`, return strings.
+**Command adapters vs use cases** — commands handle poise attrs, `guild_id`, defer/reply; use cases resolve season, dispatch via `League`, call `db/` / league modules, return strings.
 
 | Concern | Adapter | Use case |
 |---------|---------|----------|
 | Registration | `commands/registration.rs` | `registration.rs` |
 | WC gameplay | `commands/wc/` | `wc/` |
-| Standings | `commands/wc/standings.rs` | `standings.rs` |
+| Standings | `commands/wc/standings.rs` | `League::standings` → `wc/standings` (format helpers in `standings.rs`) |
 | Config | `commands/config.rs` | inline DB (small, admin-only) |
 
 New behavior: use case first → thin handler in `commands/` → `commands::all()`.
@@ -62,8 +62,9 @@ Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_
 
 ## Key patterns
 
-- `ctx.data().soccar_api()` or `data.soccar_api()` — never pass `http` + `api_token` separately
-- Types from `crate::api`; domain helpers from `crate::soccar`
+- Resolve the focused season’s league with `League::for_guild` / `League::for_season`, then call enum methods (`list_teams`, `standings`, …)
+- `Data` holds `db` + shared `http`; league modules own their API clients/tokens (e.g. `wc::football_data`)
+- Types from `crate::api`; soccer domain helpers from `crate::soccar` (wc module)
 - Competition code from `league_competition_code()` via league slug
 
 ## Repo conventions
@@ -90,7 +91,7 @@ Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_
 - HTTP or Discord in `db/`
 - Bypass `Season::default_for_guild()` in gameplay commands
 - Monolithic `db/mod.rs` with inline SQL
-- Raw `reqwest::Client` + token when `soccar_api()` exists
+- Raw `reqwest::Client` + token in host code when a league module client helper exists
 
 ## Running checks
 

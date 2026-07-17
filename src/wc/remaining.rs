@@ -20,7 +20,7 @@ pub async fn list_for_guild(data: &Data, guild_id: u64) -> Result<FetchOutcome, 
         league_competition_code(&league_slug)
     };
 
-    let api = data.soccar_api();
+    let api = crate::wc::football_data(data);
     let teams = api.fetch_teams(&competition).await?;
     let matches = api.fetch_competition_matches(&competition).await?;
 

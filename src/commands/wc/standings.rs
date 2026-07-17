@@ -1,8 +1,11 @@
 use poise::serenity_prelude as serenity;
 
 use crate::{
-    db::Season,
-    standings::{self, format_standings_detail_lines, format_standings_summary_lines, standings_footer},
+    league::League,
+    standings::{
+        format_standings_detail_lines, format_standings_summary_lines, standings_footer,
+        standings_ranks,
+    },
     types::{Context, Error},
 };
 
@@ -14,8 +17,8 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
     let rows = {
         let conn = ctx.data().db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        standings::get_standings(&conn, season.id)?
+        let (season, league) = League::for_guild(&conn, guild_id)?;
+        league.standings(&conn, season.id)?
     };
 
     if rows.is_empty() {
@@ -25,7 +28,7 @@ pub async fn standings(ctx: Context<'_>) -> Result<(), Error> {
     }
 
     let footer = standings_footer();
-    let ranks = standings::standings_ranks(&rows);
+    let ranks = standings_ranks(&rows);
     let summary_lines = format_standings_summary_lines(&rows, &ranks);
     let detail_lines = format_standings_detail_lines(&rows, &ranks);
 

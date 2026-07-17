@@ -1,33 +1,22 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    db::{Season, Registration, league_competition_code},
-    soccar::find_team,
-    standings,
+    db::Registration,
+    league::League,
     types::{Data, Error},
 };
 
-fn active_competition(conn: &rusqlite::Connection, season: &Season) -> rusqlite::Result<String> {
-    let league_slug = Season::league_slug_for(conn, season.id)?;
-    Ok(league_competition_code(&league_slug))
-}
-
-async fn fetch_competition_teams(
+async fn focused_league_teams(
     data: &Data,
     guild_id: u64,
-) -> Result<Vec<crate::api::Team>, Error> {
-    let competition = {
+) -> Result<(i64, League, Vec<crate::league::CatalogTeam>), Error> {
+    let (season_id, league) = {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        active_competition(&conn, &season)?
+        let (season, league) = League::for_guild(&conn, guild_id)?;
+        (season.id, league)
     };
-    Ok(data.soccar_api().fetch_teams(&competition).await?)
-}
-
-fn team_not_found_message(team_query: &str) -> String {
-    format!(
-        "Couldn't find a World Cup team matching \"{team_query}\". Try the full name or three-letter code (e.g. BRA)."
-    )
+    let teams = league.list_teams(data).await?;
+    Ok((season_id, league, teams))
 }
 
 pub async fn claim_for_user(
@@ -36,15 +25,14 @@ pub async fn claim_for_user(
     user_id: u64,
     team_query: &str,
 ) -> Result<String, Error> {
-    let api_teams = fetch_competition_teams(data, guild_id).await?;
-    let Some(selected) = find_team(&api_teams, team_query) else {
-        return Ok(team_not_found_message(team_query));
+    let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
+    let Some(selected) = league.find_team(&api_teams, team_query) else {
+        return Ok(league.team_not_found_message(team_query));
     };
 
     {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
+        if let Some(existing) = Registration::get_by_team(&conn, season_id, selected.id)?
             && existing.user_id != user_id
         {
             return Ok(format!(
@@ -53,7 +41,7 @@ pub async fn claim_for_user(
             ));
         }
 
-        Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
+        Registration::upsert(&conn, season_id, user_id, selected.id, &selected.name)?;
     }
 
     Ok(format!(
@@ -69,15 +57,14 @@ pub async fn assign_for_user(
     team_query: &str,
     assignee_mention: &str,
 ) -> Result<String, Error> {
-    let api_teams = fetch_competition_teams(data, guild_id).await?;
-    let Some(selected) = find_team(&api_teams, team_query) else {
-        return Ok(team_not_found_message(team_query));
+    let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
+    let Some(selected) = league.find_team(&api_teams, team_query) else {
+        return Ok(league.team_not_found_message(team_query));
     };
 
     {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        if let Some(existing) = Registration::get_by_team(&conn, season.id, selected.id)?
+        if let Some(existing) = Registration::get_by_team(&conn, season_id, selected.id)?
             && existing.user_id != user_id
         {
             return Ok(format!(
@@ -86,7 +73,7 @@ pub async fn assign_for_user(
             ));
         }
 
-        Registration::upsert(&conn, season.id, user_id, selected.id, &selected.name)?;
+        Registration::upsert(&conn, season_id, user_id, selected.id, &selected.name)?;
     }
 
     Ok(format!(
@@ -101,15 +88,15 @@ pub async fn unclaim_for_user(
     user_id: u64,
     team_query: &str,
 ) -> Result<String, Error> {
-    let api_teams = fetch_competition_teams(data, guild_id).await?;
-    let Some(selected) = find_team(&api_teams, team_query) else {
-        return Ok(team_not_found_message(team_query));
+    let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
+    let Some(selected) = league.find_team(&api_teams, team_query) else {
+        return Ok(league.team_not_found_message(team_query));
     };
 
     let removed = {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        Registration::delete(&conn, season.id, user_id, selected.id)?
+        league.clear_picks_for_team(&conn, season_id, user_id, selected.id)?;
+        Registration::delete(&conn, season_id, user_id, selected.id)?
     };
 
     Ok(if removed {
@@ -124,13 +111,13 @@ pub async fn my_team_message(
     guild_id: u64,
     user_id: u64,
 ) -> Result<String, Error> {
-    let (registrations, pick, tiebreaker_goals) = {
+    let (registrations, pick, tiebreaker_value) = {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
+        let (season, league) = League::for_guild(&conn, guild_id)?;
         let registrations = Registration::list_for_user(&conn, season.id, user_id)?;
-        let pick = crate::db::WcTiebreakerPick::get_for_user(&conn, season.id, user_id)?;
-        let tiebreaker_goals = standings::tiebreaker_goals_for_user(&conn, season.id, user_id)?;
-        (registrations, pick, tiebreaker_goals)
+        let pick = league.tiebreaker_pick_for_user(&conn, season.id, user_id)?;
+        let tiebreaker_value = league.tiebreaker_value_for_user(&conn, season.id, user_id)?;
+        (registrations, pick, tiebreaker_value)
     };
 
     let mut message = match registrations.as_slice() {
@@ -145,10 +132,9 @@ pub async fn my_team_message(
         }
     };
 
-    if let Some(pick) = pick {
+    if let Some((player_name, team_name)) = pick {
         message.push_str(&format!(
-            "\n\nTie-breaker: **{}** ({}) — **{}** goals",
-            pick.player_name, pick.team_name, tiebreaker_goals
+            "\n\nTie-breaker: **{player_name}** ({team_name}) — **{tiebreaker_value}** goals"
         ));
     } else if !registrations.is_empty() {
         message.push_str("\n\nTie-breaker: none — use `/pick-player` to designate one.");
@@ -165,7 +151,7 @@ pub enum SeasonTeamsList {
 pub async fn list_season_teams(data: &Data, guild_id: u64) -> Result<SeasonTeamsList, Error> {
     let registrations = {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
+        let (season, _) = League::for_guild(&conn, guild_id)?;
         Registration::list_for_season(&conn, season.id)?
     };
 
@@ -198,11 +184,11 @@ pub enum UnclaimedTeams {
 }
 
 pub async fn unclaimed_teams(data: &Data, guild_id: u64) -> Result<UnclaimedTeams, Error> {
-    let api_teams = fetch_competition_teams(data, guild_id).await?;
+    let (_season_id, _league, api_teams) = focused_league_teams(data, guild_id).await?;
 
     let claimed_team_ids = {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
+        let (season, _) = League::for_guild(&conn, guild_id)?;
         Registration::list_for_season(&conn, season.id)?
             .iter()
             .map(|registration| registration.team_id)
