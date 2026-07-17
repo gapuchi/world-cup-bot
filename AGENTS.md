@@ -40,16 +40,25 @@ ctx.say(message).await?;
 
 **Poller** — `poller.rs` processes all seasons (every guild), grouped by `league_slug`; not a command.
 
+## Leagues vs seasons
+
+| Term | Meaning |
+|------|---------|
+| **League** | Compile-time competition type (`League` enum in `src/league.rs`, slug e.g. `wc`). Adding a league is a code change. |
+| **Season** | Runtime instance of a league for one guild (`season_id`). Created via `/config season`. |
+
+Catalog rows may exist in `leagues` for future slugs; only variants on `League` can have seasons (`League::supports_season` / `from_slug`).
+
 ## Seasons (multi-guild, multi-league)
 
-Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_id` in `guild_config`.
+Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_id` in `guild_config` (**command focus** — which season slash commands use).
 
 - Gameplay commands: `Season::default_for_guild(conn, guild_id)` — pass invoking `ctx.guild_id()`
-- Poller: `Season::list_all_with_meta()` for all guilds
-- Setup: `/config season` creates a season; fresh guilds have none until then
+- Poller: `Season::list_all_with_meta()` for all guilds (later: live seasons only; independent of command focus)
+- Setup: `/config season` creates a season for a compiled-in league; fresh guilds have none until then
 - `season_id` keys registrations, results, tie-breakers, announcements
 - Do not hardcode guild or season ids
-- League switch (`/config league`) changes which season commands see; data per league stays separate
+- League switch (`/config league`) changes command focus; data per league stays separate
 
 ## Key patterns
 
