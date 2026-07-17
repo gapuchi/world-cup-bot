@@ -2,6 +2,7 @@ mod api;
 mod season;
 mod tiebreaker;
 
+pub(crate) mod poll;
 pub(crate) mod standings;
 pub(crate) mod teams;
 pub mod remaining;

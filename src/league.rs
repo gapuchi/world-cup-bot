@@ -1,11 +1,21 @@
+use poise::serenity_prelude as serenity;
 use rusqlite::Connection;
 
 use crate::{
-    db::Season,
+    db::{Season, SeasonMeta},
     standings::StandingRow,
     types::{Data, Error},
     wc,
 };
+
+/// Summary returned by [`League::poll`] for host logging.
+#[derive(Debug, Clone)]
+pub struct PollOutcome {
+    pub finished_matches: usize,
+    pub scored_matches: usize,
+    pub seasons: usize,
+    pub detail: String,
+}
 
 /// Compile-time league types that this binary can run.
 ///
@@ -152,6 +162,17 @@ impl League {
             Self::Wc => {
                 wc::standings::clear_picks_for_team(conn, season_id, user_id, team_id)
             }
+        }
+    }
+
+    pub async fn poll(
+        self,
+        data: &Data,
+        http: &serenity::Http,
+        seasons: &[SeasonMeta],
+    ) -> Result<PollOutcome, Error> {
+        match self {
+            Self::Wc => wc::poll::poll(data, http, seasons).await,
         }
     }
 }
