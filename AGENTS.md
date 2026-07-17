@@ -54,7 +54,7 @@ Catalog rows may exist in `leagues` for future slugs; only variants on `League` 
 Tenancy is at **season** (`seasons.guild_id`). Each guild has a `default_season_id` in `guild_config` (**command focus** — which season slash commands use).
 
 - Gameplay commands: `Season::default_for_guild(conn, guild_id)` — pass invoking `ctx.guild_id()`
-- Poller: `Season::list_all_with_meta()` for all guilds (later: live seasons only; independent of command focus)
+- Poller: `Season::list_live_with_meta()` — seasons with `polling_enabled` (independent of command focus)
 - Setup: `/config season` creates a season for a compiled-in league; fresh guilds have none until then
 - `season_id` keys registrations, results, tie-breakers, announcements
 - Do not hardcode guild or season ids

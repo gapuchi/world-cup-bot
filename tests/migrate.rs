@@ -400,3 +400,86 @@ fn announced_elimination_tracks_per_season_team() {
     assert_eq!(announced.len(), 1);
     assert!(announced.contains(&769));
 }
+
+#[test]
+fn new_seasons_are_live_by_default_and_list_live_filters() {
+    let conn = Connection::open_in_memory().unwrap();
+    db::init(&conn).unwrap();
+
+    let live = Season::get_or_create(&conn, 111, "wc", "wc-2026", "World Cup 2026").unwrap();
+    assert!(live.polling_enabled);
+
+    let idle = Season::get_or_create(&conn, 222, "wc", "wc-2026", "World Cup 2026").unwrap();
+    Season::set_polling_enabled(&conn, idle.id, false).unwrap();
+
+    let live_ids: Vec<i64> = Season::list_live_with_meta(&conn)
+        .unwrap()
+        .into_iter()
+        .map(|meta| meta.season.id)
+        .collect();
+    assert_eq!(live_ids, vec![live.id]);
+
+    let all_ids: Vec<i64> = Season::list_all_with_meta(&conn)
+        .unwrap()
+        .into_iter()
+        .map(|meta| meta.season.id)
+        .collect();
+    assert_eq!(all_ids.len(), 2);
+    assert!(all_ids.contains(&live.id));
+    assert!(all_ids.contains(&idle.id));
+
+    // Command focus on the idle season must not change the live poller set.
+    GuildConfig::set_default_season_id(&conn, 222, idle.id).unwrap();
+    let live_ids_after_focus: Vec<i64> = Season::list_live_with_meta(&conn)
+        .unwrap()
+        .into_iter()
+        .map(|meta| meta.season.id)
+        .collect();
+    assert_eq!(live_ids_after_focus, vec![live.id]);
+}
+
+#[test]
+fn migration_v6_adds_polling_enabled_defaulting_existing_seasons_to_live() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        INSERT INTO schema_version (version) VALUES (5);
+        CREATE TABLE leagues (
+            id INTEGER PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            sport TEXT NOT NULL
+        );
+        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
+        CREATE TABLE seasons (
+            id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            slug TEXT NOT NULL,
+            name TEXT NOT NULL,
+            announce_channel_id INTEGER,
+            UNIQUE (guild_id, league_id, slug)
+        );
+        INSERT INTO seasons (id, guild_id, league_id, slug, name)
+        VALUES (1, 111, 1, 'wc-2026', 'World Cup 2026');
+        CREATE TABLE guild_config (
+            guild_id INTEGER PRIMARY KEY,
+            default_season_id INTEGER NOT NULL REFERENCES seasons(id)
+        );
+        INSERT INTO guild_config (guild_id, default_season_id) VALUES (111, 1);
+        ",
+    )
+    .unwrap();
+
+    db::init(&conn).unwrap();
+
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+
+    let season = Season::get(&conn, 1).unwrap().unwrap();
+    assert!(season.polling_enabled);
+    assert_eq!(Season::list_live_with_meta(&conn).unwrap().len(), 1);
+}

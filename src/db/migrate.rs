@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS seasons (
     slug                    TEXT NOT NULL,
     name                    TEXT NOT NULL,
     announce_channel_id     INTEGER,
+    polling_enabled         INTEGER NOT NULL DEFAULT 1,
     starts_at               TEXT,
     ends_at                 TEXT,
     UNIQUE (guild_id, league_id, slug)
@@ -197,6 +198,10 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
 
     if version < 5 {
         migrate_v5_add_announced_eliminations(conn)?;
+    }
+
+    if version < 6 {
+        migrate_v6_add_season_polling_enabled(conn)?;
     }
 
     conn.execute_batch(CREATE_SCHEMA)?;
@@ -886,6 +891,16 @@ fn migrate_v5_add_announced_eliminations(conn: &Connection) -> rusqlite::Result<
         );
         ",
     )?;
+    Ok(())
+}
+
+fn migrate_v6_add_season_polling_enabled(conn: &Connection) -> rusqlite::Result<()> {
+    if table_exists(conn, "seasons")? && !column_exists(conn, "seasons", "polling_enabled")? {
+        conn.execute(
+            "ALTER TABLE seasons ADD COLUMN polling_enabled INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
     Ok(())
 }
 

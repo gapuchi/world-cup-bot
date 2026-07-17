@@ -45,7 +45,7 @@ async fn poll_once(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let season_metas = {
         let conn = data.db.lock().await;
-        Season::list_all_with_meta(&conn)?
+        Season::list_live_with_meta(&conn)?
     };
 
     if season_metas.is_empty() {
