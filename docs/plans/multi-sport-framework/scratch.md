@@ -1,25 +1,25 @@
 # Scratch: multi-sport-framework
 
-**PR:** 2 of 6 — Live seasons vs command focus  
-**Status:** in progress
+**PR:** 6 of 6 — Docs + add-a-league checklist  
+**Status:** finishing
 
 ## Current
 
-Implementing PR 2 on branch `cursor/multi-sport-framework-4ce5`.
+All increments implemented on branch `cursor/multi-sport-framework-4ce5`. Push branch only; no PR.
 
 ## Stack
 
-| PR | Label | Branch / notes |
-|----|-------|----------------|
-| 1 | League enum + compile-time gate | done (local commit) |
-| 2 | Live seasons vs command focus | this branch (in progress) |
-| 3 | Peel shared host off WC types | |
-| 4 | Command assembly via League::commands() | |
-| 5 | Poller via League::poll | |
-| 6 | Docs + add-a-league checklist | |
+| PR | Label | Status |
+|----|-------|--------|
+| 1 | League enum + compile-time gate | done |
+| 2 | Live seasons vs command focus | done |
+| 3 | Peel shared host off WC types | done |
+| 4 | Command assembly via League match | done |
+| 5 | Poller via League::poll | done |
+| 6 | Docs + add-a-league checklist | in progress |
 
 ## Notes
 
 - Plan: `docs/plans/multi-sport-framework/plan.md`
-- No “pack” terminology — use league / season / league module
-- User: local commits OK; do not push unless asked
+- No “pack” terminology — league / season / league module
+- User: push commits to branch; do not open a PR

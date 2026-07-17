@@ -4,12 +4,12 @@
 
 ## Status
 
-- [ ] PR 1: League enum + compile-time gate
-- [ ] PR 2: Live seasons vs command focus
-- [ ] PR 3: Peel shared host off WC types
-- [ ] PR 4: Command assembly via League::commands()
-- [ ] PR 5: Poller dispatches via League::poll
-- [ ] PR 6: Docs + add-a-league checklist
+- [x] PR 1: League enum + compile-time gate
+- [x] PR 2: Live seasons vs command focus
+- [x] PR 3: Peel shared host off WC types
+- [x] PR 4: Command assembly via League match (`commands_for`)
+- [x] PR 5: Poller dispatches via League::poll
+- [x] PR 6: Docs + add-a-league checklist
 
 ## Goal
 

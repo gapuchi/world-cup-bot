@@ -12,6 +12,7 @@ Shared entities at `src/db/` root; league-specific gameplay under `src/db/<leagu
 - No HTTP, Discord, or poise imports in `db/`.
 - Schema changes go in `migrate.rs` with a version bump.
 - Gameplay data is scoped by `season_id`.
-- Active season: `GuildConfig` → `Season::default_for_guild`. Do not hardcode season ids in commands.
+- Command focus: `GuildConfig` → `Season::default_for_guild`. Do not hardcode season ids in commands.
+- Live/polling: `seasons.polling_enabled` — independent of command focus; poller uses `Season::list_live_with_meta`.
 
 World Cup tables (`wc_*` SQL names): accessors in `db/wc/` — `WcMatchResult`, `WcProcessedMatch`, `WcPlayerGoalTotal`, `WcTiebreakerPick`.
