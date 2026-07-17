@@ -4,6 +4,7 @@
 
 - [`src/db/README.md`](src/db/README.md) — schema and entities
 - [`docs/plans/multi-sport-framework/plan.md`](docs/plans/multi-sport-framework/plan.md) — multi-league framework plan
+- [`.cursor/skills/add-league/SKILL.md`](.cursor/skills/add-league/SKILL.md) — **`/add-league`** runbook to add a `League` variant
 - [`.cursor/rules/`](.cursor/rules/) — scoped reminders (`api-layer`, `db-layer`, `readme-sync`)
 
 ## Project overview
@@ -73,15 +74,15 @@ Tenancy is at **season** (`seasons.guild_id`).
 - Competition code from `league_competition_code()` via league slug
 - League-specific slash commands: exhaustive `commands_for(League)` in `commands/mod.rs`
 
-## Adding a league (checklist)
+## Adding a league
 
-1. Add `League` variant + `from_slug` / `slug` / `display_name` arms in `src/league.rs`
-2. Implement league module (`src/<slug>/`) with teams, standings, poll, optional tie-break
-3. Wire enum method arms (`list_teams`, `standings`, `poll`, …)
-4. Add `db/<slug>/` accessors if new tables (schema already has `nba_*` / `nfl_*` stubs)
-5. Register league-only commands in `commands_for` match
-6. Add env vars to `.env.example` / README; fail-fast in `main` if required
-7. Seed or keep catalog row in `migrate.rs` `seed_catalog`
+Invoke **`/add-league`** (skill: `.cursor/skills/add-league/`). Short checklist:
+
+1. `League` variant + match arms in `src/league.rs`
+2. League module `src/<slug>/` (teams, standings, poll, …)
+3. `db/<slug>/` accessors if needed (nfl/nba tables may already exist)
+4. `commands_for(League)` for league-only commands
+5. Env + README; `cargo test` / clippy
 
 ## Repo conventions
 
