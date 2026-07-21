@@ -1,4 +1,5 @@
 mod config;
+mod draft;
 mod helpers;
 mod meta;
 mod nfl;
@@ -6,6 +7,7 @@ mod registration;
 mod wc;
 
 pub use config::{config, config_channel, config_league, config_leagues};
+pub use draft::draft;
 pub use meta::{help, ping, register, version};
 pub use registration::{assign, claim, my_team, teams, unclaim, unclaimed};
 pub use wc::{pick_player, remaining, season, standings};
@@ -19,6 +21,7 @@ pub fn all() -> Vec<poise::Command<crate::types::Data, crate::types::Error>> {
         help(),
         register(),
         config(),
+        draft(),
         claim(),
         assign(),
         unclaim(),

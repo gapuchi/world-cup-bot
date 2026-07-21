@@ -25,9 +25,25 @@ CREATE TABLE IF NOT EXISTS seasons (
     name                    TEXT NOT NULL,
     announce_channel_id     INTEGER,
     polling_enabled         INTEGER NOT NULL DEFAULT 1,
+    roster_phase            TEXT NOT NULL DEFAULT 'open',
     starts_at               TEXT,
     ends_at                 TEXT,
     UNIQUE (guild_id, league_id, slug)
+);
+
+CREATE TABLE IF NOT EXISTS draft_sessions (
+    season_id               INTEGER PRIMARY KEY REFERENCES seasons(id),
+    order_kind              TEXT NOT NULL,
+    status                  TEXT NOT NULL,
+    created_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS draft_participants (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    position                INTEGER NOT NULL,
+    user_id                 INTEGER NOT NULL,
+    PRIMARY KEY (season_id, position),
+    UNIQUE (season_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS guild_config (
