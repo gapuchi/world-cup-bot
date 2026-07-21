@@ -43,6 +43,8 @@ fn fresh_init_seeds_catalog_without_seasons() {
                 'nfl_processed_games',
                 'nfl_tiebreaker_picks',
                 'nfl_player_touchdown_totals',
+                'draft_sessions',
+                'draft_participants',
                 'wc_announced_eliminations'
               )
             ",
@@ -50,7 +52,7 @@ fn fresh_init_seeds_catalog_without_seasons() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(league_tables, 9);
+    assert_eq!(league_tables, 11);
 }
 
 #[test]
@@ -153,110 +155,3 @@ fn new_seasons_are_live_by_default_and_list_live_filters() {
         .collect();
     assert_eq!(live_ids_after_focus, vec![live.id]);
 }
-<<<<<<< HEAD
-=======
-
-#[test]
-fn migration_v6_adds_polling_enabled_defaulting_existing_seasons_to_live() {
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch(
-        "
-        CREATE TABLE schema_version (version INTEGER NOT NULL);
-        INSERT INTO schema_version (version) VALUES (5);
-        CREATE TABLE leagues (
-            id INTEGER PRIMARY KEY,
-            slug TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL,
-            sport TEXT NOT NULL
-        );
-        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
-        CREATE TABLE seasons (
-            id INTEGER PRIMARY KEY,
-            guild_id INTEGER NOT NULL,
-            league_id INTEGER NOT NULL REFERENCES leagues(id),
-            slug TEXT NOT NULL,
-            name TEXT NOT NULL,
-            announce_channel_id INTEGER,
-            UNIQUE (guild_id, league_id, slug)
-        );
-        INSERT INTO seasons (id, guild_id, league_id, slug, name)
-        VALUES (1, 111, 1, 'wc-2026', 'World Cup 2026');
-        CREATE TABLE guild_config (
-            guild_id INTEGER PRIMARY KEY,
-            default_season_id INTEGER NOT NULL REFERENCES seasons(id)
-        );
-        INSERT INTO guild_config (guild_id, default_season_id) VALUES (111, 1);
-        ",
-    )
-    .unwrap();
-
-    db::init(&conn).unwrap();
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(version, SCHEMA_VERSION);
-
-    let season = Season::get(&conn, 1).unwrap().unwrap();
-    assert!(season.polling_enabled);
-    assert_eq!(Season::list_live_with_meta(&conn).unwrap().len(), 1);
-}
-
-#[test]
-fn migration_v7_adds_roster_phase_and_draft_tables() {
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch(
-        "
-        CREATE TABLE schema_version (version INTEGER NOT NULL);
-        INSERT INTO schema_version (version) VALUES (6);
-        CREATE TABLE leagues (
-            id INTEGER PRIMARY KEY,
-            slug TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL,
-            sport TEXT NOT NULL
-        );
-        INSERT INTO leagues (id, slug, name, sport) VALUES (1, 'wc', 'FIFA World Cup', 'soccer');
-        CREATE TABLE seasons (
-            id INTEGER PRIMARY KEY,
-            guild_id INTEGER NOT NULL,
-            league_id INTEGER NOT NULL REFERENCES leagues(id),
-            slug TEXT NOT NULL,
-            name TEXT NOT NULL,
-            announce_channel_id INTEGER,
-            polling_enabled INTEGER NOT NULL DEFAULT 1,
-            UNIQUE (guild_id, league_id, slug)
-        );
-        INSERT INTO seasons (id, guild_id, league_id, slug, name, polling_enabled)
-        VALUES (1, 111, 1, 'wc-2026', 'World Cup 2026', 1);
-        CREATE TABLE guild_config (
-            guild_id INTEGER PRIMARY KEY,
-            default_season_id INTEGER NOT NULL REFERENCES seasons(id)
-        );
-        INSERT INTO guild_config (guild_id, default_season_id) VALUES (111, 1);
-        ",
-    )
-    .unwrap();
-
-    db::init(&conn).unwrap();
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(version, SCHEMA_VERSION);
-
-    let season = Season::get(&conn, 1).unwrap().unwrap();
-    assert_eq!(season.roster_phase, world_cup_bot::db::RosterPhase::Open);
-
-    let tables: i64 = conn
-        .query_row(
-            "
-            SELECT COUNT(*) FROM sqlite_master
-            WHERE type = 'table' AND name IN ('draft_sessions', 'draft_participants')
-            ",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(tables, 2);
-}
->>>>>>> c8af580 (feat: add draft schema, roster phase, and snake turn math)
