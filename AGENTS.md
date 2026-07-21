@@ -4,6 +4,7 @@
 
 - [`src/db/README.md`](src/db/README.md) — schema and entities
 - [`docs/plans/multi-sport-framework/plan.md`](docs/plans/multi-sport-framework/plan.md) — multi-league framework plan
+- [`docs/plans/season-draft/plan.md`](docs/plans/season-draft/plan.md) — pre-season snake draft plan
 - [`.cursor/skills/add-league/SKILL.md`](.cursor/skills/add-league/SKILL.md) — **`/add-league`** runbook to add a `League` variant
 - [`.cursor/rules/`](.cursor/rules/) — scoped reminders (`api-layer`, `db-layer`, `readme-sync`)
 

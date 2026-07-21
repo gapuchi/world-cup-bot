@@ -43,6 +43,8 @@ fn fresh_init_seeds_catalog_without_seasons() {
                 'nfl_processed_games',
                 'nfl_tiebreaker_picks',
                 'nfl_player_touchdown_totals',
+                'draft_sessions',
+                'draft_participants',
                 'wc_announced_eliminations'
               )
             ",
@@ -50,7 +52,7 @@ fn fresh_init_seeds_catalog_without_seasons() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(league_tables, 9);
+    assert_eq!(league_tables, 11);
 }
 
 #[test]
@@ -123,6 +125,7 @@ fn new_seasons_are_live_by_default_and_list_live_filters() {
 
     let live = Season::get_or_create(&conn, 111, "wc", "wc-2026", "World Cup 2026").unwrap();
     assert!(live.polling_enabled);
+    assert_eq!(live.roster_phase, world_cup_bot::db::RosterPhase::Open);
 
     let idle = Season::get_or_create(&conn, 222, "wc", "wc-2026", "World Cup 2026").unwrap();
     Season::set_polling_enabled(&conn, idle.id, false).unwrap();

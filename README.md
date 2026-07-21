@@ -41,6 +41,17 @@ Match announcements are only sent after `/config channel` has been set for that 
 
 Use `/season` to see which league and season commands currently target in this server.
 
+### Pre-season draft
+
+Admins can run a **snake draft** before free claiming:
+
+1. Season roster phase starts as `open` (free `/claim`).
+2. `/draft start` with the list of players — order is **randomized**; phase becomes `drafting`.
+3. On-clock players use `/draft pick`; admins may `/assign` **only** for the player on the clock. `/claim` and `/unclaim` are blocked.
+4. When every team is taken, the draft completes and the roster is **frozen** (no further claims/assigns/unclaims).
+
+Use `/draft status` anytime for order, whose turn, and remaining teams.
+
 ## Commands
 
 Run `/help` to list all commands, or `/help <command>` for details (e.g. `/help claim`).
