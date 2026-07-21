@@ -27,7 +27,7 @@ pub async fn pick_tiebreaker_player(
         .map(|registration| (registration.team_id, registration.team_name.clone()))
         .collect();
 
-    let squad = fetch_squads_for_teams(&data.soccar_api(), &teams).await?;
+    let squad = fetch_squads_for_teams(&crate::wc::football_data(data), &teams).await?;
     let matches = find_players(&squad, player_query);
 
     match matches.as_slice() {

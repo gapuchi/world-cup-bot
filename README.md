@@ -2,7 +2,7 @@
 
 Discord bot for sports prediction pools. Each member can claim one or more teams; when a claimed team's match finishes, the bot awards points and posts an announcement in a configured channel.
 
-The bot can serve **multiple Discord servers** at once. Each server has its own team claims, standings, announcement channel, and league selection. World Cup is fully supported today; NFL and NBA pools are coming soon.
+The bot can serve **multiple Discord servers** at once. Each server has its own team claims, standings, announcement channel, and league selection. Leagues are compiled into the bot; seasons are configured per server at runtime. World Cup is fully supported today; NFL and NBA pools are coming soon.
 
 ## Setup
 
@@ -37,7 +37,7 @@ Slash commands are registered automatically in each guild the bot joins on start
 
 Each Discord server configures the bot independently. On a **new** server, an admin must create a season first — there is no default until `/config season` has been run in that server. Run `/help config` for subcommands.
 
-Match announcements are only sent after `/config channel` has been set for that season. Each season keeps its own channel, registrations, scores, and tie-breaker picks. Gameplay commands always target the default season for the server where the command was run.
+Match announcements are only sent after `/config channel` has been set for that season. Each season keeps its own channel, registrations, scores, and tie-breaker picks. Gameplay commands always target the **command focus** season (default season) for the server where the command was run. The background poller processes seasons marked live for polling, which is separate from command focus.
 
 Use `/season` to see which league and season commands currently target in this server.
 

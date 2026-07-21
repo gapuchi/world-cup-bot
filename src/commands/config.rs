@@ -2,7 +2,8 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    db::{GuildConfig, Season, SeasonDisplay, league_exists, league_supports_season},
+    db::{GuildConfig, Season, SeasonDisplay, league_exists},
+    league::League,
     types::{Context, Error},
 };
 
@@ -30,7 +31,7 @@ pub async fn config_league(
         }
     }
 
-    if !league_supports_season(&slug) {
+    if !League::supports_season(&slug) {
         ctx.say(format!("League \"{slug}\" is not supported yet.")).await?;
         return Ok(());
     }
@@ -157,7 +158,7 @@ pub async fn config_season(
         }
     }
 
-    if !league_supports_season(&league_slug) {
+    if !League::supports_season(&league_slug) {
         ctx.say(format!("League \"{league_slug}\" is not supported yet.")).await?;
         return Ok(());
     }

@@ -14,7 +14,8 @@ async fn main() {
 
     let token =
         std::env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in the environment");
-    let api_token = std::env::var("FOOTBALL_DATA_API_TOKEN")
+    // Fail fast while the wc league module is compiled in.
+    let _football_data_api_token = std::env::var("FOOTBALL_DATA_API_TOKEN")
         .expect("Expected FOOTBALL_DATA_API_TOKEN in the environment");
 
     let db_path = database_path();
@@ -26,7 +27,6 @@ async fn main() {
     let data = types::Data {
         db: Arc::new(tokio::sync::Mutex::new(conn)),
         http: reqwest::Client::new(),
-        api_token,
     };
 
     let intents = serenity::GatewayIntents::GUILDS;

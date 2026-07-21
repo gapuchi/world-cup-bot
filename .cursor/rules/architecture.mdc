@@ -9,5 +9,6 @@ alwaysApply: true
 
 Quick guardrails (details and examples in `AGENTS.md`):
 
-- Layers: `api` → `soccar` → `db` → use cases → `commands`
-- `data.soccar_api()` at call sites; `Season::default_for_guild()` in gameplay commands
+- Layers: `api` → league modules / `soccar` → `db` → host use cases → `commands`
+- Dispatch via `League` enum methods; `Season::default_for_guild()` / `League::for_guild` in gameplay commands
+- Poller uses live seasons (`polling_enabled`), not command focus
