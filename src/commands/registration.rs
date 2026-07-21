@@ -22,8 +22,13 @@ pub async fn claim(
     Ok(())
 }
 
-/// Claim a World Cup nation for another member
-#[poise::command(prefix_command, slash_command, guild_only)]
+/// Admin: claim a team for another member (draft: on-clock player only)
+#[poise::command(
+    prefix_command,
+    slash_command,
+    guild_only,
+    required_permissions = "MANAGE_GUILD"
+)]
 pub async fn assign(
     ctx: Context<'_>,
     #[description = "Member to claim the team for"] user: serenity::Member,

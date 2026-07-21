@@ -11,8 +11,9 @@ SQLite persistence for Discord prediction seasons. A **season** is one Discord g
 
 ### Guild configuration
 
-- **Season** — One guild’s tracking of a league competition (`guild_id`, `league_id`, slug, name, announce channel, `polling_enabled`). `polling_enabled` controls whether the background poller includes the season; it is independent of which season slash commands use.
+- **Season** — One guild’s tracking of a league competition (`guild_id`, `league_id`, slug, name, announce channel, `polling_enabled`, `roster_phase`). `polling_enabled` controls whether the background poller includes the season; it is independent of which season slash commands use. `roster_phase` is `open` | `drafting` | `frozen` for claim/draft gating.
 - **GuildConfig** — Maps a Discord guild to its **command focus** season (`default_season_id`) for slash commands.
+- **Draft session / participants** — Pre-season draft order (`draft_sessions`, `draft_participants`) scoped by `season_id`.
 
 ### Gameplay (per season)
 
@@ -61,6 +62,7 @@ erDiagram
         text name
         int announce_channel_id
         int polling_enabled
+        text roster_phase
     }
     guild_config {
         int guild_id PK

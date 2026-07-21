@@ -2,6 +2,33 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{guild_config::GuildConfig, league};
 
+/// Registration / draft lifecycle for a season.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RosterPhase {
+    Open,
+    Drafting,
+    Frozen,
+}
+
+impl RosterPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Drafting => "drafting",
+            Self::Frozen => "frozen",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "open" => Some(Self::Open),
+            "drafting" => Some(Self::Drafting),
+            "frozen" => Some(Self::Frozen),
+            _ => None,
+        }
+    }
+}
+
 pub struct Season {
     pub id: i64,
     pub guild_id: u64,
@@ -12,6 +39,7 @@ pub struct Season {
     /// When true, the background poller includes this season. Independent of
     /// guild command focus (`GuildConfig.default_season_id`).
     pub polling_enabled: bool,
+    pub roster_phase: RosterPhase,
 }
 
 pub struct SeasonMeta {
@@ -36,7 +64,8 @@ impl Season {
     pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Self>> {
         conn.query_row(
             "
-            SELECT id, guild_id, league_id, slug, name, announce_channel_id, polling_enabled
+            SELECT id, guild_id, league_id, slug, name, announce_channel_id, polling_enabled,
+                   roster_phase
             FROM seasons
             WHERE id = ?1
             ",
@@ -68,6 +97,7 @@ impl Season {
                 s.name,
                 s.announce_channel_id,
                 s.polling_enabled,
+                s.roster_phase,
                 l.slug,
                 l.name
             FROM seasons s
@@ -78,8 +108,8 @@ impl Season {
         let rows = stmt.query_map([], |row| {
             Ok(SeasonMeta {
                 season: season_from_row(row)?,
-                league_slug: row.get(7)?,
-                league_name: row.get(8)?,
+                league_slug: row.get(8)?,
+                league_name: row.get(9)?,
             })
         })?;
         rows.collect()
@@ -97,6 +127,7 @@ impl Season {
                 s.name,
                 s.announce_channel_id,
                 s.polling_enabled,
+                s.roster_phase,
                 l.slug,
                 l.name
             FROM seasons s
@@ -108,8 +139,8 @@ impl Season {
         let rows = stmt.query_map([], |row| {
             Ok(SeasonMeta {
                 season: season_from_row(row)?,
-                league_slug: row.get(7)?,
-                league_name: row.get(8)?,
+                league_slug: row.get(8)?,
+                league_name: row.get(9)?,
             })
         })?;
         rows.collect()
@@ -123,7 +154,7 @@ impl Season {
         conn.query_row(
             "
             SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id,
-                   s.polling_enabled
+                   s.polling_enabled, s.roster_phase
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.guild_id = ?1 AND l.slug = ?2
@@ -184,6 +215,18 @@ impl Season {
         Ok(())
     }
 
+    pub fn set_roster_phase(
+        conn: &Connection,
+        id: i64,
+        phase: RosterPhase,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "UPDATE seasons SET roster_phase = ?1 WHERE id = ?2",
+            params![phase.as_str(), id],
+        )?;
+        Ok(())
+    }
+
     pub fn list_with_league(
         conn: &Connection,
         guild_id: u64,
@@ -191,7 +234,7 @@ impl Season {
         let mut stmt = conn.prepare(
             "
             SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id,
-                   s.polling_enabled, l.slug, l.name
+                   s.polling_enabled, s.roster_phase, l.slug, l.name
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.guild_id = ?1
@@ -201,8 +244,8 @@ impl Season {
         let rows = stmt.query_map(params![guild_id as i64], |row| {
             Ok(SeasonLeague {
                 season: season_from_row(row)?,
-                league_slug: row.get(7)?,
-                league_name: row.get(8)?,
+                league_slug: row.get(8)?,
+                league_name: row.get(9)?,
             })
         })?;
         rows.collect()
@@ -238,7 +281,7 @@ impl Season {
         conn.query_row(
             "
             SELECT s.id, s.guild_id, s.league_id, s.slug, s.name, s.announce_channel_id,
-                   s.polling_enabled
+                   s.polling_enabled, s.roster_phase
             FROM seasons s
             JOIN leagues l ON l.id = s.league_id
             WHERE s.guild_id = ?1 AND l.slug = ?2 AND s.slug = ?3
@@ -272,10 +315,18 @@ impl SeasonDisplay {
 }
 
 /// Reads season columns in order:
-/// `id, guild_id, league_id, slug, name, announce_channel_id, polling_enabled`.
+/// `id, guild_id, league_id, slug, name, announce_channel_id, polling_enabled, roster_phase`.
 fn season_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Season> {
     let channel: Option<i64> = row.get(5)?;
     let polling: i64 = row.get(6)?;
+    let phase_raw: String = row.get(7)?;
+    let roster_phase = RosterPhase::parse(&phase_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            7,
+            rusqlite::types::Type::Text,
+            format!("unknown roster_phase `{phase_raw}`").into(),
+        )
+    })?;
     Ok(Season {
         id: row.get(0)?,
         guild_id: row.get::<_, i64>(1)? as u64,
@@ -284,6 +335,7 @@ fn season_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Season> {
         name: row.get(4)?,
         announce_channel_id: channel.map(|id| id as u64),
         polling_enabled: polling != 0,
+        roster_phase,
     })
 }
 

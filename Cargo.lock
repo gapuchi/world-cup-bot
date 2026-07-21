@@ -2771,6 +2771,7 @@ version = "0.2.3"
 dependencies = [
  "dotenvy",
  "poise",
+ "rand 0.9.4",
  "reqwest",
  "rusqlite",
  "serde",

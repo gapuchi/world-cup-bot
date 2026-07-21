@@ -1,10 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    db::Registration,
+    db::{Registration, RosterPhase, Season},
+    draft,
     league::League,
     types::{Data, Error},
 };
+
+fn phase_blocks_open_claims(phase: RosterPhase) -> Option<&'static str> {
+    match phase {
+        RosterPhase::Open => None,
+        RosterPhase::Drafting => {
+            Some("A draft is in progress. On-clock players use `/draft pick`; admins may `/assign` only to the player on the clock.")
+        }
+        RosterPhase::Frozen => {
+            Some("The roster is frozen after the draft. Claims and unclaims are locked.")
+        }
+    }
+}
 
 async fn focused_league_teams(
     data: &Data,
@@ -25,6 +38,14 @@ pub async fn claim_for_user(
     user_id: u64,
     team_query: &str,
 ) -> Result<String, Error> {
+    {
+        let conn = data.db.lock().await;
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        if let Some(msg) = phase_blocks_open_claims(season.roster_phase) {
+            return Ok(msg.into());
+        }
+    }
+
     let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
     let Some(selected) = league.find_team(&api_teams, team_query) else {
         return Ok(league.team_not_found_message(team_query));
@@ -57,6 +78,29 @@ pub async fn assign_for_user(
     team_query: &str,
     assignee_mention: &str,
 ) -> Result<String, Error> {
+    let phase = {
+        let conn = data.db.lock().await;
+        Season::default_for_guild(&conn, guild_id)?.roster_phase
+    };
+
+    match phase {
+        RosterPhase::Frozen => {
+            return Ok("The roster is frozen after the draft. Assignments are locked.".into());
+        }
+        RosterPhase::Drafting => {
+            return draft::pick_for_user(data, guild_id, user_id, team_query)
+                .await
+                .map(|msg| {
+                    if msg.starts_with("**") && msg.contains("drafted") {
+                        format!("{msg}\n(via admin `/assign` for {assignee_mention})")
+                    } else {
+                        msg
+                    }
+                });
+        }
+        RosterPhase::Open => {}
+    }
+
     let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
     let Some(selected) = league.find_team(&api_teams, team_query) else {
         return Ok(league.team_not_found_message(team_query));
@@ -88,6 +132,14 @@ pub async fn unclaim_for_user(
     user_id: u64,
     team_query: &str,
 ) -> Result<String, Error> {
+    {
+        let conn = data.db.lock().await;
+        let season = Season::default_for_guild(&conn, guild_id)?;
+        if let Some(msg) = phase_blocks_open_claims(season.roster_phase) {
+            return Ok(msg.into());
+        }
+    }
+
     let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
     let Some(selected) = league.find_team(&api_teams, team_query) else {
         return Ok(league.team_not_found_message(team_query));
