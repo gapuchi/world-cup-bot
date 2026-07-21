@@ -6,7 +6,7 @@ SQLite persistence for Discord prediction seasons. A **season** is one Discord g
 
 ### Catalog
 
-- **League** — Sport catalog entry (`wc`, `nba`, `nfl`). Seeded at migration.
+- **League** — Sport catalog entry (`wc`, `nba`, `nfl`). Seeded on fresh schema init.
 - **Team** — Team name lookup keyed by `(league_id, team_id)`. Upserted when users register.
 
 ### Guild configuration

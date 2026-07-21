@@ -95,7 +95,7 @@ Invoke **`/add-league`** (skill: `.cursor/skills/add-league/`). Short checklist:
 | Task | Where |
 |------|-------|
 | New command | Use case → `commands/` handler → `commands::all()` or `commands_for(League)` → docstring |
-| New DB table | `migrate.rs` + `db/` or `db/<league>/` → re-export in `db/mod.rs` |
+| New DB table | Extend greenfield `CREATE_SCHEMA` in `migrate.rs` (no upgrade path) + `db/` or `db/<league>/` → re-export in `db/mod.rs` |
 | New API endpoint | `api/…` + league module helpers as needed |
 | New league poller | `League::poll` arm + league module `poll` (host `poller.rs` stays generic) |
 | Scoring / tie-breakers | league module + shared `scoring` helpers; update `README.md` if user-visible |

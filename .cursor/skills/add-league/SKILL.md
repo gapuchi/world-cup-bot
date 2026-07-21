@@ -43,7 +43,7 @@ Work bottom-up. Keep host files free of league-specific SQL/API types.
 ### 1. Catalog + schema
 
 - Ensure `seed_catalog` in `src/db/migrate.rs` has the slug (nfl/nba already seeded).
-- If tables are missing: bump `SCHEMA_VERSION`, extend `CREATE_SCHEMA`, add migration; accessors under `src/db/<slug>/`; re-export from `src/db/mod.rs`.
+- If tables are missing: extend greenfield `CREATE_SCHEMA` (no upgrade migrations; wipe DB if stale); accessors under `src/db/<slug>/`; re-export from `src/db/mod.rs`.
 - Shared tables only: `leagues`, `seasons`, `guild_config`, `teams`, `registrations`.
 
 ### 2. League module (`src/<slug>/`)

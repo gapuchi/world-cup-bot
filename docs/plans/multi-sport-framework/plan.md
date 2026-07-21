@@ -127,14 +127,13 @@ flowchart TB
 ### PR 2: Live seasons vs command focus (schema + query)
 
 - **Story:** Poller selection is independent of `default_season_id`.
-- **Edits:** Add `polling_enabled` on `seasons` (default true); `Season::list_live_with_meta()`; poller uses that list (still WC-only impl inside).
+- **Edits:** Add `polling_enabled` on `seasons` in greenfield `CREATE_SCHEMA` (default true, no version bump); `Season::list_live_with_meta()`; poller uses that list (still WC-only impl inside).
 - **Depends on:** PR 1 merged
 - **Acceptance:**
   - [ ] Fresh DB: new seasons are live by default
-  - [ ] Migration: existing seasons become live
   - [ ] Poller iterates only live seasons; focus-only changes do not affect the set
   - [ ] Tests cover list/filter; clippy clean
-- **Touch set:** `src/db/migrate.rs`, `src/db/season.rs`, `src/poller.rs` (query only), `src/db/README.md`, migrate tests
+- **Touch set:** `src/db/migrate.rs` (CREATE_SCHEMA only), `src/db/season.rs`, `src/poller.rs` (query only), `src/db/README.md`, migrate tests
 
 ### PR 3: Peel shared host off WC types (seams for enum methods)
 
