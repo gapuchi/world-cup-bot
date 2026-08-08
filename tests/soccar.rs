@@ -1,4 +1,4 @@
-use world_cup_bot::{
+use league_bot::{
     api::{Match, MatchTeam, Score, ScoreDetail, Team},
     soccar::classify_teams,
 };
@@ -46,7 +46,7 @@ fn match_with(
     }
 }
 
-fn ids(classification: &world_cup_bot::soccar::TeamClassification) -> (Vec<i64>, Vec<i64>) {
+fn ids(classification: &league_bot::soccar::TeamClassification) -> (Vec<i64>, Vec<i64>) {
     (
         classification
             .still_in

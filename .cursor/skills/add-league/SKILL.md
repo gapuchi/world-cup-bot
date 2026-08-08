@@ -1,7 +1,7 @@
 ---
 name: add-league
 description: >-
-  Add a new compile-time League enum variant and league module to world-cup-bot.
+  Add a new compile-time League enum variant and league module to league-bot.
   Use when the user wants to add a league (e.g. NFL, NBA, Euros), implement a new
   League::Variant, wire poll/standings/teams, or asks how to extend multi-league
   support. Invoke with /add-league.

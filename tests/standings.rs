@@ -1,4 +1,4 @@
-use world_cup_bot::standings::{StandingRow, standings_ranks};
+use league_bot::standings::{StandingRow, standings_ranks};
 
 fn standing_row(points: i64) -> StandingRow {
     StandingRow {

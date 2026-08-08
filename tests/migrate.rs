@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use world_cup_bot::db::{self, GuildConfig, Season, SCHEMA_VERSION};
+use league_bot::db::{self, GuildConfig, Season, SCHEMA_VERSION};
 
 #[test]
 fn fresh_init_seeds_catalog_without_seasons() {
@@ -105,7 +105,7 @@ fn announced_elimination_tracks_per_season_team() {
     let season =
         Season::get_or_create(&conn, 111, "wc", "wc-2026", "World Cup 2026").unwrap();
 
-    use world_cup_bot::db::WcAnnouncedElimination;
+    use league_bot::db::WcAnnouncedElimination;
 
     let announced = WcAnnouncedElimination::list_for_season(&conn, season.id).unwrap();
     assert!(announced.is_empty());
@@ -125,7 +125,7 @@ fn new_seasons_are_live_by_default_and_list_live_filters() {
 
     let live = Season::get_or_create(&conn, 111, "wc", "wc-2026", "World Cup 2026").unwrap();
     assert!(live.polling_enabled);
-    assert_eq!(live.roster_phase, world_cup_bot::db::RosterPhase::Open);
+    assert_eq!(live.roster_phase, league_bot::db::RosterPhase::Open);
 
     let idle = Season::get_or_create(&conn, 222, "wc", "wc-2026", "World Cup 2026").unwrap();
     Season::set_polling_enabled(&conn, idle.id, false).unwrap();

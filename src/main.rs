@@ -1,11 +1,11 @@
-use world_cup_bot::{commands, db, poller, types};
+use league_bot::{commands, db, poller, types};
 
 use poise::serenity_prelude as serenity;
 use rusqlite::Connection;
 use std::sync::Arc;
 
 fn database_path() -> String {
-    std::env::var("DATABASE_PATH").unwrap_or_else(|_| "world_cup.db".into())
+    std::env::var("DATABASE_PATH").unwrap_or_else(|_| "league_bot.db".into())
 }
 
 #[tokio::main]

@@ -1,4 +1,4 @@
-use world_cup_bot::{
+use league_bot::{
     db::Registration,
     remaining::group_teams_by_user,
     soccar::TeamRef,

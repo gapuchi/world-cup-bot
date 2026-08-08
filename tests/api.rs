@@ -1,4 +1,4 @@
-use world_cup_bot::{
+use league_bot::{
     api::{Match, MatchTeam, Score, ScoreDetail},
     soccar::full_time_score,
 };

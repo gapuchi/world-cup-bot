@@ -17,7 +17,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         craneLib = crane.mkLib pkgs;
-        world-cup-bot = craneLib.buildPackage {
+        league-bot = craneLib.buildPackage {
           src = craneLib.cleanCargoSource (craneLib.path ./.);
           strictDeps = true;
           nativeBuildInputs = with pkgs; [ pkg-config ];
@@ -25,7 +25,7 @@
         };
       in
       {
-        packages.default = world-cup-bot;
+        packages.default = league-bot;
 
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [

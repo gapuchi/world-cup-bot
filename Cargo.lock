@@ -903,6 +903,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "league-bot"
+version = "0.2.3"
+dependencies = [
+ "dotenvy",
+ "poise",
+ "rand 0.9.4",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2763,19 +2776,6 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
-]
-
-[[package]]
-name = "world-cup-bot"
-version = "0.2.3"
-dependencies = [
- "dotenvy",
- "poise",
- "rand 0.9.4",
- "reqwest",
- "rusqlite",
- "serde",
- "tokio",
 ]
 
 [[package]]

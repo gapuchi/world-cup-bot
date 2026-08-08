@@ -1,4 +1,4 @@
-# World Cup Bot
+# League Bot
 
 Discord bot for sports prediction pools. Each member can claim one or more teams; when a claimed team's match finishes, the bot awards points and posts an announcement in a configured channel.
 
@@ -31,7 +31,7 @@ Slash commands are registered automatically in each guild the bot joins on start
 |----------|----------|-------------|
 | `DISCORD_TOKEN` | yes | Discord bot token |
 | `FOOTBALL_DATA_API_TOKEN` | yes | football-data.org API token |
-| `DATABASE_PATH` | no | SQLite database path (default: `world_cup.db`) |
+| `DATABASE_PATH` | no | SQLite database path (default: `league_bot.db`) |
 
 ## Configuration
 

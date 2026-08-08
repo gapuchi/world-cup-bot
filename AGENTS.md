@@ -10,7 +10,7 @@
 
 ## Project overview
 
-Discord bot (Rust, poise + serenity) for sports prediction pools. World Cup is live; NFL planned. SQLite persistence; match data from [football-data.org](https://www.football-data.org/).
+**League Bot** — Discord bot (Rust, poise + serenity) for sports prediction pools. World Cup is live; NFL planned. SQLite persistence; match data from [football-data.org](https://www.football-data.org/).
 
 ## Layer boundaries
 

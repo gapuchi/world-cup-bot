@@ -61,16 +61,16 @@ jobs:
         shell: bash
         run: |
           VERSION="$(nix develop -c cargo pkgid -q | sed 's/.*#//')"
-          NAME="world-cup-bot-${VERSION}-${{ matrix.platform_id }}"
+          NAME="league-bot-${VERSION}-${{ matrix.platform_id }}"
           mkdir dist
-          cp result/bin/world-cup-bot dist/
+          cp result/bin/league-bot dist/
           cp .env.example dist/
           tar -czf "${NAME}.tar.gz" -C dist .
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform_id }}
-          path: world-cup-bot-*.tar.gz
+          path: league-bot-*.tar.gz
 
   publish:
     needs: build
