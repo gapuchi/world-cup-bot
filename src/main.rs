@@ -14,7 +14,7 @@ async fn main() {
 
     let token =
         std::env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in the environment");
-    // Fail fast while the wc league module is compiled in.
+    // Fail fast while soccer league modules are compiled in.
     let _football_data_api_token = std::env::var("FOOTBALL_DATA_API_TOKEN")
         .expect("Expected FOOTBALL_DATA_API_TOKEN in the environment");
 

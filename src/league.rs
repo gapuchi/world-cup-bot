@@ -3,6 +3,7 @@ use rusqlite::Connection;
 
 use crate::{
     db::{Season, SeasonMeta},
+    epl,
     standings::StandingRow,
     types::{Data, Error},
     wc,
@@ -25,6 +26,7 @@ pub struct PollOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum League {
     Wc,
+    Epl,
 }
 
 /// Team from a league's catalog (registration / unclaimed lists).
@@ -37,11 +39,12 @@ pub struct CatalogTeam {
 }
 
 impl League {
-    pub const ALL: &[League] = &[League::Wc];
+    pub const ALL: &[League] = &[League::Wc, League::Epl];
 
     pub fn from_slug(slug: &str) -> Option<Self> {
         match slug {
             "wc" => Some(Self::Wc),
+            "epl" => Some(Self::Epl),
             _ => None,
         }
     }
@@ -49,12 +52,14 @@ impl League {
     pub fn slug(self) -> &'static str {
         match self {
             Self::Wc => "wc",
+            Self::Epl => "epl",
         }
     }
 
     pub fn display_name(self) -> &'static str {
         match self {
             Self::Wc => "FIFA World Cup",
+            Self::Epl => "Premier League",
         }
     }
 
@@ -80,6 +85,7 @@ impl League {
     pub async fn list_teams(self, data: &Data) -> Result<Vec<CatalogTeam>, Error> {
         match self {
             Self::Wc => wc::teams::list_teams(data).await,
+            Self::Epl => epl::teams::list_teams(data).await,
         }
     }
 
@@ -104,6 +110,9 @@ impl League {
             Self::Wc => format!(
                 "Couldn't find a World Cup team matching \"{team_query}\". Try the full name or three-letter code (e.g. BRA)."
             ),
+            Self::Epl => format!(
+                "Couldn't find a Premier League club matching \"{team_query}\". Try the full name or three-letter code (e.g. LIV)."
+            ),
         }
     }
 
@@ -114,6 +123,7 @@ impl League {
     ) -> rusqlite::Result<Vec<StandingRow>> {
         match self {
             Self::Wc => wc::standings::get_standings(conn, season_id),
+            Self::Epl => epl::standings::get_standings(conn, season_id),
         }
     }
 
@@ -125,6 +135,7 @@ impl League {
     ) -> rusqlite::Result<i64> {
         match self {
             Self::Wc => wc::standings::user_points(conn, season_id, user_id),
+            Self::Epl => epl::standings::user_points(conn, season_id, user_id),
         }
     }
 
@@ -136,6 +147,7 @@ impl League {
     ) -> rusqlite::Result<i64> {
         match self {
             Self::Wc => wc::standings::tiebreaker_goals_for_user(conn, season_id, user_id),
+            Self::Epl => epl::standings::tiebreaker_goals_for_user(conn, season_id, user_id),
         }
     }
 
@@ -148,6 +160,7 @@ impl League {
     ) -> rusqlite::Result<Option<(String, String)>> {
         match self {
             Self::Wc => wc::standings::tiebreaker_pick_for_user(conn, season_id, user_id),
+            Self::Epl => epl::standings::tiebreaker_pick_for_user(conn, season_id, user_id),
         }
     }
 
@@ -162,6 +175,9 @@ impl League {
             Self::Wc => {
                 wc::standings::clear_picks_for_team(conn, season_id, user_id, team_id)
             }
+            Self::Epl => {
+                epl::standings::clear_picks_for_team(conn, season_id, user_id, team_id)
+            }
         }
     }
 
@@ -173,6 +189,7 @@ impl League {
     ) -> Result<PollOutcome, Error> {
         match self {
             Self::Wc => wc::poll::poll(data, http, seasons).await,
+            Self::Epl => epl::poll::poll(data, http, seasons).await,
         }
     }
 }
@@ -189,6 +206,12 @@ mod tests {
             League::from_slug("wc").unwrap().display_name(),
             "FIFA World Cup"
         );
+        assert_eq!(League::from_slug("epl"), Some(League::Epl));
+        assert_eq!(League::from_slug("epl").unwrap().slug(), "epl");
+        assert_eq!(
+            League::from_slug("epl").unwrap().display_name(),
+            "Premier League"
+        );
     }
 
     #[test]
@@ -198,11 +221,12 @@ mod tests {
         assert_eq!(League::from_slug("unknown"), None);
         assert!(!League::supports_season("nfl"));
         assert!(League::supports_season("wc"));
+        assert!(League::supports_season("epl"));
     }
 
     #[test]
     fn all_lists_every_variant() {
-        assert_eq!(League::ALL, &[League::Wc]);
+        assert_eq!(League::ALL, &[League::Wc, League::Epl]);
     }
 
     #[test]

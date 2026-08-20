@@ -4,6 +4,7 @@ pub const SCHEMA_VERSION: i64 = 1;
 pub const WC_LEAGUE_SLUG: &str = "wc";
 pub const NBA_LEAGUE_SLUG: &str = "nba";
 pub const NFL_LEAGUE_SLUG: &str = "nfl";
+pub const EPL_LEAGUE_SLUG: &str = "epl";
 
 const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -183,6 +184,42 @@ CREATE TABLE IF NOT EXISTS nfl_player_touchdown_totals (
     updated_at              TEXT NOT NULL,
     PRIMARY KEY (season_id, player_id)
 );
+
+CREATE TABLE IF NOT EXISTS epl_match_results (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    match_id                INTEGER NOT NULL,
+    home_team_id            INTEGER NOT NULL,
+    away_team_id            INTEGER NOT NULL,
+    home_goals              INTEGER NOT NULL,
+    away_goals              INTEGER NOT NULL,
+    matchday                INTEGER,
+    finished_at             TEXT,
+    PRIMARY KEY (season_id, match_id)
+);
+
+CREATE TABLE IF NOT EXISTS epl_processed_matches (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    match_id                INTEGER NOT NULL,
+    PRIMARY KEY (season_id, match_id)
+);
+
+CREATE TABLE IF NOT EXISTS epl_tiebreaker_picks (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    user_id                 INTEGER NOT NULL,
+    player_id               INTEGER NOT NULL,
+    player_name             TEXT NOT NULL,
+    team_id                 INTEGER NOT NULL,
+    team_name               TEXT NOT NULL,
+    PRIMARY KEY (season_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS epl_player_goal_totals (
+    season_id               INTEGER NOT NULL REFERENCES seasons(id),
+    player_id               INTEGER NOT NULL,
+    goals                   INTEGER NOT NULL,
+    updated_at              TEXT NOT NULL,
+    PRIMARY KEY (season_id, player_id)
+);
 ";
 
 /// Initialize a fresh database schema. There is no upgrade path from older layouts —
@@ -224,6 +261,14 @@ fn seed_catalog(conn: &Connection) -> rusqlite::Result<()> {
         ON CONFLICT(id) DO NOTHING
         ",
         [NFL_LEAGUE_SLUG],
+    )?;
+    conn.execute(
+        "
+        INSERT INTO leagues (id, slug, name, sport)
+        VALUES (4, ?1, 'Premier League', 'soccer')
+        ON CONFLICT(id) DO NOTHING
+        ",
+        [EPL_LEAGUE_SLUG],
     )?;
     Ok(())
 }

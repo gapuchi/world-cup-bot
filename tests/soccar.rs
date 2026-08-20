@@ -43,6 +43,7 @@ fn match_with(
         status: Some(status.into()),
         stage: Some(stage.into()),
         group: group.map(str::to_string),
+        matchday: None,
     }
 }
 
@@ -348,6 +349,7 @@ fn placeholder_knockout_slots_are_ignored() {
         status: Some("TIMED".into()),
         stage: Some("LAST_32".into()),
         group: None,
+        matchday: None,
     };
 
     let classification = classify_teams(&teams, &[placeholder]);

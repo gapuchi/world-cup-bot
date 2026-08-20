@@ -16,7 +16,7 @@ fn fresh_init_seeds_catalog_without_seasons() {
     let leagues: i64 = conn
         .query_row("SELECT COUNT(*) FROM leagues", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(leagues, 3);
+    assert_eq!(leagues, 4);
 
     let seasons: i64 = conn
         .query_row("SELECT COUNT(*) FROM seasons", [], |row| row.get(0))
@@ -43,6 +43,10 @@ fn fresh_init_seeds_catalog_without_seasons() {
                 'nfl_processed_games',
                 'nfl_tiebreaker_picks',
                 'nfl_player_touchdown_totals',
+                'epl_match_results',
+                'epl_processed_matches',
+                'epl_tiebreaker_picks',
+                'epl_player_goal_totals',
                 'draft_sessions',
                 'draft_participants',
                 'wc_announced_eliminations'
@@ -52,7 +56,7 @@ fn fresh_init_seeds_catalog_without_seasons() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(league_tables, 11);
+    assert_eq!(league_tables, 15);
 }
 
 #[test]
