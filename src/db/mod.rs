@@ -5,6 +5,7 @@ mod migrate;
 mod registration;
 mod season;
 mod team;
+mod epl;
 mod wc;
 
 use rusqlite::Connection;
@@ -17,6 +18,9 @@ pub use league::{competition_code as league_competition_code, exists as league_e
 pub use registration::Registration;
 pub use season::{RosterPhase, Season, SeasonDisplay, SeasonMeta};
 pub use migrate::SCHEMA_VERSION;
+pub use epl::{
+    EplMatchResult, EplPlayerGoalTotal, EplProcessedMatch, EplTiebreakerPick,
+};
 pub use wc::{
     WcAnnouncedElimination, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, WcTiebreakerPick,
 };

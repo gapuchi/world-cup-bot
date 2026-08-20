@@ -20,5 +20,19 @@ pub fn exists(conn: &Connection, slug: &str) -> rusqlite::Result<bool> {
 }
 
 pub fn competition_code(slug: &str) -> String {
-    slug.to_uppercase()
+    match slug {
+        "epl" => "PL".into(),
+        slug => slug.to_uppercase(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::competition_code;
+
+    #[test]
+    fn competition_code_maps_league_slugs() {
+        assert_eq!(competition_code("wc"), "WC");
+        assert_eq!(competition_code("epl"), "PL");
+    }
 }

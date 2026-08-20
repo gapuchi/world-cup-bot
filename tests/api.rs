@@ -24,6 +24,7 @@ fn sample_match(home: Option<i64>, away: Option<i64>) -> Match {
         status: Some("FINISHED".into()),
         stage: Some("GROUP_STAGE".into()),
         group: Some("GROUP_A".into()),
+        matchday: None,
     }
 }
 

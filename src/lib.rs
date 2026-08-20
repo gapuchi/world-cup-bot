@@ -10,4 +10,5 @@ pub mod remaining;
 pub mod scoring;
 pub mod standings;
 pub mod types;
+pub mod epl;
 pub mod wc;

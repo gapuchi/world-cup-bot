@@ -2,7 +2,7 @@
 
 Discord bot for sports prediction pools. Each member can claim one or more teams; when a claimed team's match finishes, the bot awards points and posts an announcement in a configured channel.
 
-The bot can serve **multiple Discord servers** at once. Each server has its own team claims, standings, announcement channel, and league selection. Leagues are compiled into the bot; seasons are configured per server at runtime. World Cup is fully supported today; NFL and NBA pools are coming soon.
+The bot can serve **multiple Discord servers** at once. Each server has its own team claims, standings, announcement channel, and league selection. Leagues are compiled into the bot; seasons are configured per server at runtime. World Cup and Premier League are fully supported today; NFL and NBA pools are coming soon.
 
 ## Setup
 
@@ -73,6 +73,16 @@ Each member claims one or more nations. Each nation can only be claimed by one p
 **Tie-breaker** — if two players finish with the same total points, the one whose designated player has scored more goals in the tournament ranks higher. Use `/pick-player` to choose one player from your claimed teams' squads. If you don't pick, tie-breaker goals count as 0. Tie-breaker goals do not add to your score — they only break ties on the leaderboard.
 
 The background poller runs every 5 minutes, fetching finished matches and scorer totals from football-data.org (`WC` competition). Player squads and scorer data require a football-data.org plan that includes deep data (squads and goal scorers).
+
+### Premier League (`epl`)
+
+Each member claims one or more clubs. Each club can only be claimed by one person at a time; a person can claim multiple clubs. When a claimed team's match finishes, the bot awards points and posts an announcement in the configured channel.
+
+**Scoring** — same win/draw/loss points as World Cup (3 / 1 / 0).
+
+**Tie-breaker** — same as World Cup: designate a player with `/pick-player`; total goals from that player in the season break ties on the leaderboard.
+
+The background poller fetches finished matches and scorer totals from football-data.org (`PL` competition). Player squads and scorer data require a football-data.org plan that includes deep data.
 
 ### NFL (`nfl`)
 

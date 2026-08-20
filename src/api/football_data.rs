@@ -80,6 +80,7 @@ pub struct Match {
     pub status: Option<String>,
     pub stage: Option<String>,
     pub group: Option<String>,
+    pub matchday: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

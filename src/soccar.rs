@@ -601,6 +601,7 @@ mod tests {
             status: Some(status.into()),
             stage: Some("GROUP_STAGE".into()),
             group: group.map(str::to_string),
+            matchday: None,
         }
     }
 
@@ -645,6 +646,7 @@ mod tests {
             status: Some("FINISHED".into()),
             stage: Some("LAST_16".into()),
             group: None,
+            matchday: None,
         }
     }
 
@@ -953,6 +955,7 @@ mod tests {
             status: Some("FINISHED".into()),
             stage: Some("THIRD_PLACE".into()),
             group: None,
+            matchday: None,
         }];
         let (still_in, eliminated) = classification_ids(&classify_teams(&teams, &matches));
 
