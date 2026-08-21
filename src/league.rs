@@ -2,12 +2,14 @@ use poise::serenity_prelude as serenity;
 use rusqlite::Connection;
 
 use crate::{
+    api::Match,
     db::{
-        EplMatchResult, EplPlayerGoalTotal, EplTiebreakerPick, Registration, Season, SeasonMeta,
-        WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick,
+        EplMatchResult, EplPlayerGoalTotal, EplProcessedMatch, EplTiebreakerPick, Registration,
+        Season, SeasonMeta, WcMatchResult, WcPlayerGoalTotal, WcProcessedMatch, WcTiebreakerPick,
     },
     epl,
     scoring::FinishedMatch,
+    soccer::full_time_score,
     standings::{self, StandingRow},
     types::{Data, Error},
     wc,
@@ -274,6 +276,104 @@ impl League {
             }
         })
         .await
+    }
+
+    pub fn cache_player_goals(
+        self,
+        conn: &Connection,
+        season_id: i64,
+        totals: &[(i64, i64)],
+        updated_at: &str,
+    ) -> rusqlite::Result<()> {
+        match self {
+            Self::Wc => WcPlayerGoalTotal::upsert_batch(conn, season_id, totals, updated_at),
+            Self::Epl => EplPlayerGoalTotal::upsert_batch(conn, season_id, totals, updated_at),
+        }
+    }
+
+    pub fn stored_match_score(
+        self,
+        conn: &Connection,
+        season_id: i64,
+        match_id: i64,
+    ) -> rusqlite::Result<Option<(i64, i64)>> {
+        match self {
+            Self::Wc => WcMatchResult::score(conn, season_id, match_id),
+            Self::Epl => EplMatchResult::score(conn, season_id, match_id),
+        }
+    }
+
+    pub fn is_match_processed(
+        self,
+        conn: &Connection,
+        season_id: i64,
+        match_id: i64,
+    ) -> rusqlite::Result<bool> {
+        match self {
+            Self::Wc => WcProcessedMatch::is_processed(conn, season_id, match_id),
+            Self::Epl => EplProcessedMatch::is_processed(conn, season_id, match_id),
+        }
+    }
+
+    pub fn mark_match_processed(
+        self,
+        conn: &Connection,
+        season_id: i64,
+        match_id: i64,
+    ) -> rusqlite::Result<()> {
+        match self {
+            Self::Wc => WcProcessedMatch::mark(conn, season_id, match_id),
+            Self::Epl => EplProcessedMatch::mark(conn, season_id, match_id),
+        }
+    }
+
+    pub fn unmark_match_processed(
+        self,
+        conn: &Connection,
+        season_id: i64,
+        match_id: i64,
+    ) -> rusqlite::Result<()> {
+        match self {
+            Self::Wc => WcProcessedMatch::unmark(conn, season_id, match_id),
+            Self::Epl => EplProcessedMatch::unmark(conn, season_id, match_id),
+        }
+    }
+
+    /// Persist the finished-match score. No-op when the API row lacks team ids or a full-time score.
+    pub fn upsert_match_result(
+        self,
+        conn: &Connection,
+        season_id: i64,
+        m: &Match,
+    ) -> rusqlite::Result<()> {
+        let Some((home_goals, away_goals)) = full_time_score(m) else {
+            return Ok(());
+        };
+        let (Some(home_team_id), Some(away_team_id)) = (m.home_team.id, m.away_team.id) else {
+            return Ok(());
+        };
+        match self {
+            Self::Wc => WcMatchResult {
+                season_id,
+                match_id: m.id,
+                home_team_id,
+                away_team_id,
+                home_goals,
+                away_goals,
+                stage: m.stage.clone(),
+            }
+            .upsert(conn),
+            Self::Epl => EplMatchResult {
+                season_id,
+                match_id: m.id,
+                home_team_id,
+                away_team_id,
+                home_goals,
+                away_goals,
+                matchday: m.matchday,
+            }
+            .upsert(conn),
+        }
     }
 
     pub async fn poll(

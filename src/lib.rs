@@ -8,6 +8,7 @@ pub mod poller;
 pub mod registration;
 pub mod season;
 pub mod scoring;
+pub mod soccer_poll;
 pub mod standings;
 pub mod tiebreaker;
 pub mod types;

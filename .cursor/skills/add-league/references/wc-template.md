@@ -20,7 +20,8 @@ Use while implementing a new league. Copy structure, not tournament rules.
 | File | Role |
 |------|------|
 | `src/wc/mod.rs` | Module tree (`poll`, `remaining`) |
-| `src/wc/poll.rs` | Match ingest, scorers cache, elimination announces |
+| `src/wc/poll.rs` | WC elimination announces; delegates match ingest to `soccer_poll` |
+| `src/soccer_poll.rs` | Shared soccer match ingest + full-time announce + scorer cache |
 | `src/wc/remaining.rs` | Tournament remaining (WC-specific) |
 | `src/league.rs` | Standings + pick-player dispatch (shared soccer logic) |
 | `src/tiebreaker.rs` | Shared soccer pick-player flow |

@@ -98,7 +98,7 @@ Invoke **`/add-league`** (skill: `.cursor/skills/add-league/`). Short checklist:
 | New command | Use case → `commands/` handler → `commands::all()` or `commands_for(League)` → docstring |
 | New DB table | Extend greenfield `CREATE_SCHEMA` in `migrate.rs` (no upgrade path) + `db/` or `db/<league>/` → re-export in `db/mod.rs` |
 | New API endpoint | `api/…` + league module helpers as needed |
-| New league poller | `League::poll` arm + league module `poll` (host `poller.rs` stays generic) |
+| New league poller | `League::poll` arm + league module `poll`; soccer leagues delegate match ingestion to `soccer_poll` (host `poller.rs` stays generic) |
 | Scoring / tie-breakers | league module + shared `scoring` helpers; update `README.md` if user-visible |
 | Setup / config UX | `README.md` (see `readme-sync.mdc`) |
 
