@@ -1,4 +1,6 @@
-use crate::scoring::{DRAW_POINTS, LOSS_POINTS, WIN_POINTS};
+use crate::db::Registration;
+use crate::scoring::{self, DRAW_POINTS, FinishedMatch, LOSS_POINTS, WIN_POINTS};
+use std::collections::HashMap;
 
 /// League-agnostic standings row returned across the `League` seam.
 pub struct StandingRow {
@@ -11,6 +13,61 @@ pub struct StandingRow {
 
 pub fn standings_footer() -> String {
     format!("Win {WIN_POINTS} · Draw {DRAW_POINTS} · Loss {LOSS_POINTS} · TB = tie-breaker goals")
+}
+
+/// Build ranked standings from finished matches and registrations.
+///
+/// `tiebreaker_for` returns `(goals, player_name)` for each user.
+pub fn build_rows(
+    matches: &[FinishedMatch],
+    registrations: &[Registration],
+    mut tiebreaker_for: impl FnMut(u64) -> rusqlite::Result<(i64, Option<String>)>,
+) -> rusqlite::Result<Vec<StandingRow>> {
+    let mut by_user: HashMap<u64, (Vec<i64>, Vec<String>)> = HashMap::new();
+    for registration in registrations {
+        let entry = by_user.entry(registration.user_id).or_default();
+        entry.0.push(registration.team_id);
+        entry.1.push(registration.team_name.clone());
+    }
+
+    let mut rows = Vec::with_capacity(by_user.len());
+    for (user_id, (team_ids, team_names)) in by_user {
+        let (tiebreaker_goals, tiebreaker_player) = tiebreaker_for(user_id)?;
+        let mut teams: Vec<(String, i64)> = team_ids
+            .iter()
+            .zip(&team_names)
+            .map(|(team_id, team_name)| {
+                (
+                    team_name.clone(),
+                    scoring::points_for_team(*team_id, matches),
+                )
+            })
+            .collect();
+        teams.sort_by(|a, b| a.0.cmp(&b.0));
+        rows.push(StandingRow {
+            user_id,
+            points: scoring::points_for_teams(&team_ids, matches),
+            teams,
+            tiebreaker_goals,
+            tiebreaker_player,
+        });
+    }
+
+    rows.sort_by(|a, b| {
+        b.points
+            .cmp(&a.points)
+            .then_with(|| b.tiebreaker_goals.cmp(&a.tiebreaker_goals))
+            .then_with(|| a.user_id.cmp(&b.user_id))
+    });
+    Ok(rows)
+}
+
+pub fn points_for_user_teams(
+    matches: &[FinishedMatch],
+    registrations: &[Registration],
+) -> i64 {
+    let team_ids: Vec<i64> = registrations.iter().map(|r| r.team_id).collect();
+    scoring::points_for_teams(&team_ids, matches)
 }
 
 pub fn format_standing_summary(rank: usize, row: &StandingRow) -> String {

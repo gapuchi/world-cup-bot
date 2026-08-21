@@ -171,17 +171,6 @@ pub async fn pick_for_user(
     user_id: u64,
     team_query: &str,
 ) -> Result<PickOutcome, Error> {
-    pick_internal(data, guild_id, user_id, user_id, team_query, false).await
-}
-
-async fn pick_internal(
-    data: &Data,
-    guild_id: u64,
-    actor_id: u64,
-    beneficiary_id: u64,
-    team_query: &str,
-    admin_proxy: bool,
-) -> Result<PickOutcome, Error> {
     let (season_id, league, order, order_kind) = {
         let conn = data.db.lock().await;
         let (season, league) = League::for_guild(&conn, guild_id)?;
@@ -213,16 +202,9 @@ async fn pick_internal(
         return Ok(PickOutcome::Notice("Draft order is empty.".into()));
     };
 
-    if beneficiary_id != on_clock {
+    if user_id != on_clock {
         return Ok(PickOutcome::Notice(format!(
-            "It is <@{}>'s turn to pick (not <@{}>).",
-            on_clock, beneficiary_id
-        )));
-    }
-    if !admin_proxy && actor_id != on_clock {
-        return Ok(PickOutcome::Notice(format!(
-            "It is <@{}>'s turn to pick.",
-            on_clock
+            "It is <@{on_clock}>'s turn to pick (not <@{user_id}>)."
         )));
     }
 
@@ -244,7 +226,7 @@ async fn pick_internal(
         Registration::upsert(
             &conn,
             season_id,
-            beneficiary_id,
+            user_id,
             selected.id,
             &selected.name,
         )?;
@@ -257,19 +239,18 @@ async fn pick_internal(
         Season::set_roster_phase(&conn, season_id, RosterPhase::Frozen)?;
         return Ok(PickOutcome::Picked {
             team_name: selected.name.clone(),
-            beneficiary_id,
+            beneficiary_id: user_id,
             remaining_teams: 0,
             next_on_clock: None,
         });
     }
 
-    let next_index = pick_index + 1;
-    let Some(next) = next_picker(&order, next_index, order_kind) else {
+    let Some(next) = next_picker(&order, pick_index + 1, order_kind) else {
         return Ok(PickOutcome::Notice("Draft order is empty.".into()));
     };
     Ok(PickOutcome::Picked {
         team_name: selected.name.clone(),
-        beneficiary_id,
+        beneficiary_id: user_id,
         remaining_teams: remaining,
         next_on_clock: Some(next),
     })

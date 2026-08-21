@@ -22,5 +22,4 @@ alwaysApply: false
 
 Team name lookup for registration uses `League::find_team` on `CatalogTeam`.
 
-League modules obtain the client via `wc::football_data(data)` / `epl::football_data(data)`
-(thin wrappers around `FootballDataApi::from_env`).
+Soccer league modules construct the client with `FootballDataApi::from_env(data.http.clone())`.

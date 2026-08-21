@@ -9,6 +9,7 @@ pub mod registration;
 pub mod season;
 pub mod scoring;
 pub mod standings;
+pub mod tiebreaker;
 pub mod types;
 pub mod epl;
 pub mod wc;

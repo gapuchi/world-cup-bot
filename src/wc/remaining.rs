@@ -28,7 +28,7 @@ pub async fn list_for_guild(data: &Data, guild_id: u64) -> Result<RemainingResul
         (league_competition_code(&league_slug), season.id)
     };
 
-    let api = crate::wc::football_data(data);
+    let api = crate::api::FootballDataApi::from_env(data.http.clone());
     let teams = api.fetch_teams(&competition).await?;
     let matches = api.fetch_competition_matches(&competition).await?;
     let classification = soccar::classify_teams(&teams, &matches);

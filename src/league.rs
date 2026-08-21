@@ -38,6 +38,17 @@ pub struct CatalogTeam {
     pub code: Option<String>,
 }
 
+impl CatalogTeam {
+    pub fn from_api(team: crate::api::Team) -> Self {
+        Self {
+            id: team.id,
+            name: team.name,
+            short_name: team.short_name,
+            code: team.tla,
+        }
+    }
+}
+
 impl League {
     pub const ALL: &[League] = &[League::Wc, League::Epl];
 
@@ -83,10 +94,11 @@ impl League {
     }
 
     pub async fn list_teams(self, data: &Data) -> Result<Vec<CatalogTeam>, Error> {
-        match self {
-            Self::Wc => wc::teams::list_teams(data).await,
-            Self::Epl => epl::teams::list_teams(data).await,
-        }
+        let competition = crate::db::league_competition_code(self.slug());
+        let teams = crate::api::FootballDataApi::from_env(data.http.clone())
+            .fetch_teams(&competition)
+            .await?;
+        Ok(teams.into_iter().map(CatalogTeam::from_api).collect())
     }
 
     pub fn find_team<'a>(self, teams: &'a [CatalogTeam], query: &str) -> Option<&'a CatalogTeam> {

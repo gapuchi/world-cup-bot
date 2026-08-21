@@ -2,7 +2,7 @@ use poise::serenity_prelude as serenity;
 use serenity::Mentionable;
 
 use crate::{
-    api::{Match, Team},
+    api::{FootballDataApi, Match, Team},
     db::{
         Registration, SeasonMeta, WcAnnouncedElimination, WcMatchResult, WcPlayerGoalTotal,
         WcProcessedMatch, league_competition_code,
@@ -12,8 +12,6 @@ use crate::{
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     types::Data,
 };
-
-use super::api::football_data;
 
 struct MatchUpdate {
     user_id: u64,
@@ -33,7 +31,7 @@ pub async fn poll(
     seasons: &[SeasonMeta],
 ) -> Result<PollOutcome, Box<dyn std::error::Error + Send + Sync>> {
     let competition = league_competition_code("wc");
-    let api = football_data(data);
+    let api = FootballDataApi::from_env(data.http.clone());
     let matches = api.fetch_competition_matches(&competition).await?;
     let teams = api.fetch_teams(&competition).await?;
     let finished_matches: Vec<&Match> = matches.iter().filter(|m| is_finished_match(m)).collect();
