@@ -70,7 +70,7 @@ Tenancy is at **season** (`seasons.guild_id`).
 ## Key patterns
 
 - Resolve the focused season’s league with `League::for_guild` / `League::for_season`, then call enum methods (`list_teams`, `standings`, `poll`, …)
-- `Data` holds `db` + shared `http`; league modules own their API clients/tokens (e.g. `wc::football_data`)
+- `Data` holds `db` + shared `http`; soccer leagues use `FootballDataApi::from_env(data.http.clone())`
 - Types from `crate::api`; soccer domain helpers from `crate::soccar` (wc module)
 - Competition code from `league_competition_code()` via league slug
 - League-specific slash commands: exhaustive `commands_for(League)` in `commands/mod.rs`
@@ -110,7 +110,7 @@ Invoke **`/add-league`** (skill: `.cursor/skills/add-league/`). Short checklist:
 - Bypass `Season::default_for_guild()` / `League::for_guild` in gameplay commands
 - Hard-wire `Wc*` types into shared host paths (`registration`, host `standings`, `types`, `db/registration`)
 - Monolithic `db/mod.rs` with inline SQL
-- Raw `reqwest::Client` + token in host code when a league module client helper exists
+- Raw `reqwest::Client` + token in host code when `FootballDataApi::from_env` exists
 - Assume command focus controls the poller (use `polling_enabled` / live seasons)
 
 ## Running checks
