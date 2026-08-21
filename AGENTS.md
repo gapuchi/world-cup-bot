@@ -19,7 +19,7 @@ Strict layers — details when editing matching paths are in `.cursor/rules/`:
 | Layer | Role |
 |-------|------|
 | `src/api/` | HTTP clients + serde DTOs only; 1:1 with endpoints |
-| `src/soccar.rs` | Soccer domain helpers on API data (used by the `wc` league module) |
+| `src/soccer.rs` | Soccer domain helpers on API data (used by the `wc` league module) |
 | `src/db/` | Persistence accessors; shared entities at root; league tables under `db/<slug>/` |
 | `src/league.rs` | Compile-time `League` enum — host dispatch face into league modules |
 | League modules (`src/wc/`, …) | API client, poll, standings, tie-break, league-only use cases |
@@ -71,7 +71,7 @@ Tenancy is at **season** (`seasons.guild_id`).
 
 - Resolve the focused season’s league with `League::for_guild` / `League::for_season`, then call enum methods (`list_teams`, `standings`, `poll`, …)
 - `Data` holds `db` + shared `http`; soccer leagues use `FootballDataApi::from_env(data.http.clone())`
-- Types from `crate::api`; soccer domain helpers from `crate::soccar` (wc module)
+- Types from `crate::api`; soccer domain helpers from `crate::soccer` (wc module)
 - Competition code from `league_competition_code()` via league slug
 - League-specific slash commands: exhaustive `commands_for(League)` in `commands/mod.rs`
 

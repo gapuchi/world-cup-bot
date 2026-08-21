@@ -1,6 +1,6 @@
 ---
 description: football-data.org API client and domain layer conventions
-globs: src/api/**,src/soccar.rs
+globs: src/api/**,src/soccer.rs
 alwaysApply: false
 ---
 
@@ -14,7 +14,7 @@ alwaysApply: false
 - Serde structs matching API JSON (`Team`, `Match`, `SquadPlayer`, `Scorer`)
 - Shared client construction (`FootballDataApi::from_env`)
 
-**Belongs in `soccar.rs` (not `api/`):**
+**Belongs in `soccer.rs` (not `api/`):**
 - `find_players`, squad fetch orchestration
 - `fetch_squads_for_teams` (multi-call orchestration + role filter)
 - `full_time_score` (interpreting nullable API score fields)

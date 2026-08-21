@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::{
     db::{Registration, Season},
-    soccar::{fetch_squads_for_teams, find_players, SquadPlayerMatch},
+    soccer::{fetch_squads_for_teams, find_players, SquadPlayerMatch},
     types::{Data, Error},
 };
 

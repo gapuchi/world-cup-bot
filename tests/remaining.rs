@@ -1,6 +1,6 @@
 use league_bot::{
     db::Registration,
-    soccar::TeamRef,
+    soccer::TeamRef,
     wc::remaining::group_teams_by_user,
 };
 

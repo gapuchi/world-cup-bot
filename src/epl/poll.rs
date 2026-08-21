@@ -7,7 +7,7 @@ use crate::{
         EplMatchResult, EplPlayerGoalTotal, EplProcessedMatch, Registration, league_competition_code,
     },
     league::{League, PollOutcome},
-    soccar::full_time_score,
+    soccer::full_time_score,
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     types::Data,
 };

@@ -8,7 +8,7 @@ use crate::{
         WcProcessedMatch, league_competition_code,
     },
     league::{League, PollOutcome},
-    soccar::{classify_teams, full_time_score, TeamRef},
+    soccer::{classify_teams, full_time_score, TeamRef},
     scoring::{self, DRAW_POINTS, LOSS_POINTS, WIN_POINTS},
     types::Data,
 };

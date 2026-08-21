@@ -511,21 +511,18 @@ pub async fn fetch_squads_for_teams(
     let mut players = Vec::new();
     for (team_id, team_name) in teams {
         let squad = api.fetch_team_squad(*team_id).await?;
-        for player in squad {
-            if player
+        players.extend(squad.into_iter().filter_map(|player| {
+            let is_player = player
                 .role
                 .as_ref()
-                .is_some_and(|role| role != "PLAYER")
-            {
-                continue;
-            }
-            players.push(SquadPlayerMatch {
+                .is_none_or(|role| role == "PLAYER");
+            is_player.then(|| SquadPlayerMatch {
                 player_id: player.id,
                 player_name: player.name,
                 team_id: *team_id,
                 team_name: team_name.clone(),
-            });
-        }
+            })
+        }));
     }
     Ok(players)
 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     db::{league_competition_code, Registration, Season},
-    soccar::{self, TeamClassification, TeamRef},
+    soccer::{self, TeamClassification, TeamRef},
     types::{Data, Error},
 };
 
@@ -31,7 +31,7 @@ pub async fn list_for_guild(data: &Data, guild_id: u64) -> Result<RemainingResul
     let api = crate::api::FootballDataApi::from_env(data.http.clone());
     let teams = api.fetch_teams(&competition).await?;
     let matches = api.fetch_competition_matches(&competition).await?;
-    let classification = soccar::classify_teams(&teams, &matches);
+    let classification = soccer::classify_teams(&teams, &matches);
 
     let registrations = {
         let conn = data.db.lock().await;
@@ -70,46 +70,39 @@ pub fn group_teams_by_user(
         .map(|registration| (registration.team_id, registration.user_id))
         .collect();
 
-    let mut by_user: HashMap<u64, Vec<String>> = HashMap::new();
-    let mut unassigned = Vec::new();
-
-    for team in teams {
-        if let Some(&user_id) = owner_by_team.get(&team.id) {
-            by_user.entry(user_id).or_default().push(team.name.clone());
-        } else {
-            unassigned.push(team.name.clone());
-        }
-    }
-
+    let mut by_user = teams.iter().filter_map(|team| {
+        owner_by_team
+            .get(&team.id)
+            .map(|&user_id| (user_id, team.name.clone()))
+    }).fold(HashMap::<u64, Vec<String>>::new(), |mut map, (user_id, name)| {
+        map.entry(user_id).or_default().push(name);
+        map
+    });
     for names in by_user.values_mut() {
         names.sort();
     }
+
+    let mut unassigned: Vec<String> = teams
+        .iter()
+        .filter(|team| !owner_by_team.contains_key(&team.id))
+        .map(|team| team.name.clone())
+        .collect();
     unassigned.sort();
 
-    let mut user_ids: Vec<u64> = by_user.keys().copied().collect();
-    user_ids.sort_unstable();
-
-    let grouped = user_ids
-        .into_iter()
-        .map(|user_id| (user_id, by_user.remove(&user_id).unwrap_or_default()))
-        .collect();
+    let mut grouped: Vec<(u64, Vec<String>)> = by_user.into_iter().collect();
+    grouped.sort_unstable_by_key(|(user_id, _)| *user_id);
 
     (grouped, unassigned)
 }
 
 pub fn format_grouped_field(by_user: &[(u64, Vec<String>)], unassigned: &[String]) -> String {
-    let mut lines: Vec<String> = by_user
-        .iter()
-        .map(|(user_id, teams)| format!("<@{}> — **{}**", user_id, teams.join("**, **")))
-        .collect();
+    let user_lines = by_user.iter().map(|(user_id, teams)| {
+        format!("<@{}> — **{}**", user_id, teams.join("**, **"))
+    });
+    let unassigned_line =
+        (!unassigned.is_empty()).then(|| format!("Unassigned — **{}**", unassigned.join("**, **")));
 
-    if !unassigned.is_empty() {
-        lines.push(format!(
-            "Unassigned — **{}**",
-            unassigned.join("**, **")
-        ));
-    }
-
+    let lines: Vec<String> = user_lines.chain(unassigned_line).collect();
     if lines.is_empty() {
         "—".into()
     } else {

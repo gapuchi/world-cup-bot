@@ -25,7 +25,7 @@ Use while implementing a new league. Copy structure, not tournament rules.
 | `src/league.rs` | Standings + pick-player dispatch (shared soccer logic) |
 | `src/tiebreaker.rs` | Shared soccer pick-player flow |
 | `src/db/soccer_macros.rs` | Macros for parallel soccer table accessors |
-| `src/soccar.rs` | Soccer helpers (WC API interpretation) |
+| `src/soccer.rs` | Soccer helpers (WC API interpretation) |
 | `src/api/football_data.rs` | HTTP + DTOs |
 
 ## DB
