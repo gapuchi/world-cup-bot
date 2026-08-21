@@ -105,6 +105,28 @@ fn is_finished_match(m: &Match) -> bool {
     m.status.as_deref() == Some("FINISHED") && full_time_score(m).is_some()
 }
 
+fn match_updates(
+    conn: &rusqlite::Connection,
+    league: League,
+    season_id: i64,
+    finished: &scoring::FinishedMatch,
+    team_ids: [i64; 2],
+) -> rusqlite::Result<Vec<MatchUpdate>> {
+    team_ids
+        .into_iter()
+        .filter_map(|team_id| Registration::get_by_team(conn, season_id, team_id).transpose())
+        .map(|registration| {
+            let registration = registration?;
+            Ok(MatchUpdate {
+                points_earned: scoring::points_for_team_in_match(registration.team_id, finished),
+                total_points: league.user_points(conn, season_id, registration.user_id)?,
+                user_id: registration.user_id,
+                team_name: registration.team_name,
+            })
+        })
+        .collect()
+}
+
 async fn announce_new_eliminations(
     data: &Data,
     http: &serenity::Http,
@@ -118,16 +140,16 @@ async fn announce_new_eliminations(
     let notices = {
         let conn = data.db.lock().await;
         let announced = WcAnnouncedElimination::list_for_season(&conn, season.id)?;
-        let mut notices = Vec::new();
-        for team in classification.eliminated {
-            if announced.contains(&team.id) {
-                continue;
-            }
-            let owner_id = Registration::get_by_team(&conn, season.id, team.id)?
-                .map(|registration| registration.user_id);
-            notices.push(EliminationNotice { team, owner_id });
-        }
-        notices
+        classification
+            .eliminated
+            .into_iter()
+            .filter(|team| !announced.contains(&team.id))
+            .map(|team| {
+                let owner_id = Registration::get_by_team(&conn, season.id, team.id)?
+                    .map(|registration| registration.user_id);
+                Ok(EliminationNotice { team, owner_id })
+            })
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
 
     if notices.is_empty() {
@@ -250,29 +272,7 @@ async fn process_match(
         };
 
         let league = League::for_season(&conn, season.id)?;
-        let mut updates = Vec::new();
-
-        if let Some(registration) = Registration::get_by_team(&conn, season.id, home_team_id)? {
-            let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = league.user_points(&conn, season.id, registration.user_id)?;
-            updates.push(MatchUpdate {
-                user_id: registration.user_id,
-                team_name: registration.team_name,
-                points_earned: points,
-                total_points: total,
-            });
-        }
-
-        if let Some(registration) = Registration::get_by_team(&conn, season.id, away_team_id)? {
-            let points = scoring::points_for_team_in_match(registration.team_id, &finished);
-            let total = league.user_points(&conn, season.id, registration.user_id)?;
-            updates.push(MatchUpdate {
-                user_id: registration.user_id,
-                team_name: registration.team_name,
-                points_earned: points,
-                total_points: total,
-            });
-        }
+        let updates = match_updates(&conn, league, season.id, &finished, [home_team_id, away_team_id])?;
 
         WcProcessedMatch::mark(&conn, season.id, m.id)?;
         (updates, is_correction, previous_score)
