@@ -19,12 +19,12 @@ Use while implementing a new league. Copy structure, not tournament rules.
 
 | File | Role |
 |------|------|
-| `src/wc/mod.rs` | Module tree |
-| `src/wc/standings.rs` | Points + tie-break from `db/wc` |
+| `src/wc/mod.rs` | Module tree (`poll`, `remaining`) |
 | `src/wc/poll.rs` | Match ingest, scorers cache, elimination announces |
-| `src/wc/tiebreaker.rs` | `/pick-player` persistence for WC |
 | `src/wc/remaining.rs` | Tournament remaining (WC-specific) |
+| `src/league.rs` | Standings + pick-player dispatch (shared soccer logic) |
 | `src/tiebreaker.rs` | Shared soccer pick-player flow |
+| `src/db/soccer_macros.rs` | Macros for parallel soccer table accessors |
 | `src/soccar.rs` | Soccer helpers (WC API interpretation) |
 | `src/api/football_data.rs` | HTTP + DTOs |
 
