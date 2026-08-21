@@ -8,20 +8,6 @@ use crate::{
 
 use super::helpers::guild_id;
 
-/// Claim a World Cup nation for yourself
-#[poise::command(prefix_command, slash_command, guild_only)]
-pub async fn claim(
-    ctx: Context<'_>,
-    #[description = "World Cup team name, abbreviation, or code (e.g. Brazil, BRA)"] team: String,
-) -> Result<(), Error> {
-    ctx.defer().await?;
-    let guild_id = guild_id(&ctx)?;
-    let message =
-        registration::claim_for_user(ctx.data(), guild_id, ctx.author().id.get(), &team).await?;
-    ctx.say(message).await?;
-    Ok(())
-}
-
 /// Admin: claim a team for another member (draft: on-clock player only)
 #[poise::command(
     prefix_command,
@@ -89,7 +75,7 @@ pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = guild_id(&ctx)?;
     match registration::list_season_teams(ctx.data(), guild_id).await? {
         SeasonTeamsList::Empty => {
-            ctx.say("No teams claimed yet. Use `/claim` to pick a nation.")
+            ctx.say("No teams picked yet. Use `/draft pick` to choose a team.")
                 .await?;
         }
         SeasonTeamsList::ByUser(assignments) => {
@@ -111,19 +97,19 @@ pub async fn teams(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// List World Cup teams that have not been claimed yet
+/// List teams that have not been drafted yet
 #[poise::command(prefix_command, slash_command, guild_only)]
-pub async fn unclaimed(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn undrafted(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer().await?;
 
     let guild_id = guild_id(&ctx)?;
     match registration::unclaimed_teams(ctx.data(), guild_id).await? {
         UnclaimedTeams::AllClaimed => {
-            ctx.say("Every World Cup team has been claimed.").await?;
+            ctx.say("Every team has been drafted.").await?;
         }
         UnclaimedTeams::Available(names) => {
             let embed = serenity::CreateEmbed::default()
-                .title("Unclaimed World Cup teams")
+                .title("Undrafted teams")
                 .description(
                     names
                         .iter()

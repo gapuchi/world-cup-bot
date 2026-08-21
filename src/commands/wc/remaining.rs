@@ -24,7 +24,7 @@ pub async fn remaining(ctx: Context<'_>) -> Result<(), Error> {
                 .await?;
         }
         RemainingResult::NoRegistrations => {
-            ctx.say("No teams assigned yet. Use `/claim` to pick a nation.")
+            ctx.say("No teams assigned yet. Use `/draft pick` to choose a nation.")
                 .await?;
         }
         RemainingResult::Report(report) => {

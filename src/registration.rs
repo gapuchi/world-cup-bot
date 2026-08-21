@@ -32,18 +32,25 @@ async fn focused_league_teams(
     Ok((season_id, league, teams))
 }
 
-pub async fn claim_for_user(
+pub async fn pick_for_user(
     data: &Data,
     guild_id: u64,
     user_id: u64,
     team_query: &str,
 ) -> Result<String, Error> {
-    {
+    let phase = {
         let conn = data.db.lock().await;
-        let season = Season::default_for_guild(&conn, guild_id)?;
-        if let Some(msg) = phase_blocks_open_claims(season.roster_phase) {
-            return Ok(msg.into());
+        Season::default_for_guild(&conn, guild_id)?.roster_phase
+    };
+
+    match phase {
+        RosterPhase::Drafting => {
+            return draft::pick_for_user(data, guild_id, user_id, team_query).await;
         }
+        RosterPhase::Frozen => {
+            return Ok("The roster is frozen after the draft. Picks are locked.".into());
+        }
+        RosterPhase::Open => {}
     }
 
     let (season_id, league, api_teams) = focused_league_teams(data, guild_id).await?;
@@ -66,7 +73,7 @@ pub async fn claim_for_user(
     }
 
     Ok(format!(
-        "You've claimed **{}**. You'll earn points when they play.",
+        "You've picked **{}**. You'll earn points when they play.",
         selected.name
     ))
 }
@@ -173,7 +180,7 @@ pub async fn my_team_message(
     };
 
     let mut message = match registrations.as_slice() {
-        [] => "You haven't claimed any teams yet. Use `/claim` to pick one.".into(),
+        [] => "You haven't picked any teams yet. Use `/draft pick` to choose one.".into(),
         [registration] => format!("You're representing **{}**.", registration.team_name),
         _ => {
             let teams: Vec<&str> = registrations

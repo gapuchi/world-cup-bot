@@ -67,7 +67,7 @@ Phase 2 poller (after PR 1):
 
 - `src/api/football_data.rs` — only `fetch_finished_matches` today
 - `src/soccar.rs` — add classification alongside `full_time_score`
-- `src/commands/registration.rs` — `/unclaimed` embed/defer pattern
+- `src/commands/registration.rs` — `/undrafted` embed/defer pattern
 - `src/poller.rs` — phase 2 hooks `post_match_announcement` pattern
 - football-data free tier: 10 req/min; phase 2 reuses widened matches fetch (no extra call)
 

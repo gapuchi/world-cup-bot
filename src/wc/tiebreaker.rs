@@ -18,7 +18,7 @@ pub async fn pick_tiebreaker_player(
 
     if registrations.is_empty() {
         return Ok(
-            "Claim a team first with `/claim`, then pick a player from that squad.".into(),
+            "Pick a team first with `/draft pick`, then pick a player from that squad.".into(),
         );
     }
 

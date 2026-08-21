@@ -39,7 +39,7 @@ New behavior: use case first → thin handler in `commands/` → `commands::all(
 
 ```rust
 // Adapter calls use case; use case owns API + DB + rules via League
-let message = registration::claim_for_user(ctx.data(), guild_id, user_id, &team).await?;
+let message = registration::pick_for_user(ctx.data(), guild_id, user_id, &team).await?;
 ctx.say(message).await?;
 ```
 
@@ -126,5 +126,5 @@ Toolchain and system deps are already provisioned in the VM snapshot; the startu
 
 - **Rust edition 2024** (`Cargo.toml`) requires Rust ≥ 1.85. The base image ships an older `cargo`/`rustc` (1.83) that fails to build this repo; a newer `stable` toolchain is installed via `rustup` and set as default. If a build errors on `edition2024`, run `rustup default stable`.
 - **System libraries**: `reqwest` uses `native-tls`, so `libssl-dev` + `pkg-config` must be present (missing `openssl.pc` breaks the build); `rusqlite` uses the `bundled` feature, so a C compiler (`gcc`) is required. These are already installed in the snapshot.
-- **Running the bot** (`cargo run` / `./target/debug/league-bot`): it is a headless Discord gateway bot with **no local HTTP/UI**. It fail-fasts if `DISCORD_TOKEN` or `FOOTBALL_DATA_API_TOKEN` are unset. With placeholder tokens it still initializes the DB and reaches Discord auth, then exits with `Sent invalid authentication`. A real interactive end-to-end (slash commands like `/config season`, `/claim`, `/standings`) needs a real Discord bot token + the bot invited to a guild, plus a football-data.org token (deep data / squads + scorers need a paid tier). See `README.md` for setup and invite scopes.
+- **Running the bot** (`cargo run` / `./target/debug/league-bot`): it is a headless Discord gateway bot with **no local HTTP/UI**. It fail-fasts if `DISCORD_TOKEN` or `FOOTBALL_DATA_API_TOKEN` are unset. With placeholder tokens it still initializes the DB and reaches Discord auth, then exits with `Sent invalid authentication`. A real interactive end-to-end (slash commands like `/config season`, `/draft pick`, `/standings`) needs a real Discord bot token + the bot invited to a guild, plus a football-data.org token (deep data / squads + scorers need a paid tier). See `README.md` for setup and invite scopes.
 - **SQLite is embedded** (no DB server). The file is created automatically at `DATABASE_PATH` (default `league_bot.db`) on first boot; there is no migration path — delete the file to reset (`src/db/migrate.rs`).

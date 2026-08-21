@@ -1,10 +1,13 @@
 use poise::serenity_prelude as serenity;
 
-use crate::{draft, types::{Context, Error}};
+use crate::{
+    draft, registration,
+    types::{Context, Error},
+};
 
 use super::helpers::guild_id;
 
-/// Pre-season draft commands
+/// Team selection and pre-season draft commands
 #[poise::command(
     prefix_command,
     slash_command,
@@ -46,7 +49,7 @@ pub async fn draft_status(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Make your pick while you are on the clock
+/// Pick a team, or make your pick while on the draft clock
 #[poise::command(prefix_command, slash_command, guild_only, rename = "pick")]
 pub async fn draft_pick(
     ctx: Context<'_>,
@@ -55,7 +58,7 @@ pub async fn draft_pick(
     ctx.defer().await?;
     let guild_id = guild_id(&ctx)?;
     let message =
-        draft::pick_for_user(ctx.data(), guild_id, ctx.author().id.get(), &team).await?;
+        registration::pick_for_user(ctx.data(), guild_id, ctx.author().id.get(), &team).await?;
     ctx.say(message).await?;
     Ok(())
 }

@@ -20,8 +20,8 @@ Pre-season snake draft for a guild’s focused season: randomized pick order, on
 2. `DraftOrderKind` enum (`Snake` now; extendable) branches turn math.
 3. `draft_sessions` + `draft_participants`; turn derived from pick count + order + kind.
 4. `seasons.roster_phase`: `open` | `drafting` | `frozen`.
-5. During drafting: `/claim` blocked; admin `/assign` only for the **on-clock** user.
-6. On completion: phase `frozen`; no `/claim` / `/unclaim` / non-admin assign. No thaw in v1.
+5. `/draft pick` is free selection while open and restricted to the **on-clock** user while drafting; admin `/assign` follows the same phase rules.
+6. On completion: phase `frozen`; no `/draft pick` / `/unclaim` / non-admin assign. No thaw in v1.
 7. Start requires empty registrations for the season.
 8. Slash-only UX; continue until unclaimed pool empty (multi-team snake).
 
@@ -63,8 +63,13 @@ draft::pick(season, actor, team_query)
   pre: phase=drafting, actor == current picker (or admin assign for that user)
   post: Registration upsert; if no unclaimed left → complete + frozen
 
-registration::claim / unclaim
-  pre: phase=open only
+registration::pick
+  open: free selection
+  drafting: delegate to draft turn enforcement
+  frozen: rejected
+
+registration::unclaim
+  pre: phase=open
 
 registration::assign (admin)
   drafting: assignee must be current picker
@@ -84,9 +89,9 @@ registration::assign (admin)
 ```mermaid
 flowchart TB
   subgraph cmds ["commands"]
-    DS["/draft start|status|pick"]
+    DS["/draft start|status"]
     AS["/assign admin"]
-    CL["/claim"]
+    CL["/draft pick"]
   end
   subgraph host ["host"]
     DR[draft use case]
@@ -141,7 +146,7 @@ flowchart TB
 - **Depends on:** PR 2
 - **Acceptance:**
   - [ ] `/draft start|status|pick` registered
-  - [ ] `/claim` blocked in drafting/frozen
+  - [ ] `/draft pick` is free while open and turn-restricted while drafting
   - [ ] `/assign` requires manage guild; drafting only for on-clock assignee
 - **Touch set:** `commands/*`, `registration.rs`
 
@@ -166,4 +171,4 @@ flowchart TB
 
 ## Plan drift
 
-none
+- 2026-08-21: `/draft pick` replaced `/claim` as the single member-facing team selection command and now dispatches by roster phase.

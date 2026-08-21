@@ -11,7 +11,7 @@ pub use config::{config, config_channel, config_league, config_leagues};
 pub use draft::draft;
 pub use meta::{help, ping, register, version};
 pub use pick_player::pick_player;
-pub use registration::{assign, claim, my_team, teams, unclaim, unclaimed};
+pub use registration::{assign, my_team, teams, unclaim, undrafted};
 pub use wc::{remaining, season, standings};
 
 use crate::league::League;
@@ -24,12 +24,11 @@ pub fn all() -> Vec<poise::Command<crate::types::Data, crate::types::Error>> {
         register(),
         config(),
         draft(),
-        claim(),
         assign(),
         unclaim(),
         my_team(),
         teams(),
-        unclaimed(),
+        undrafted(),
         standings(),
         season(),
         pick_player(),
