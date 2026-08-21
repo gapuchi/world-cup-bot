@@ -45,7 +45,9 @@ pub async fn pick_for_user(
 
     match phase {
         RosterPhase::Drafting => {
-            return draft::pick_for_user(data, guild_id, user_id, team_query).await;
+            return Ok(draft::pick_for_user(data, guild_id, user_id, team_query)
+                .await?
+                .into_message());
         }
         RosterPhase::Frozen => {
             return Ok("The roster is frozen after the draft. Picks are locked.".into());
@@ -95,15 +97,14 @@ pub async fn assign_for_user(
             return Ok("The roster is frozen after the draft. Assignments are locked.".into());
         }
         RosterPhase::Drafting => {
-            return draft::pick_for_user(data, guild_id, user_id, team_query)
-                .await
-                .map(|msg| {
-                    if msg.starts_with("**") && msg.contains("drafted") {
-                        format!("{msg}\n(via admin `/assign` for {assignee_mention})")
-                    } else {
-                        msg
-                    }
-                });
+            let outcome = draft::pick_for_user(data, guild_id, user_id, team_query).await?;
+            let is_pick = matches!(&outcome, draft::PickOutcome::Picked { .. });
+            let msg = outcome.into_message();
+            return Ok(if is_pick {
+                format!("{msg}\n(via admin `/assign` for {assignee_mention})")
+            } else {
+                msg
+            });
         }
         RosterPhase::Open => {}
     }
@@ -204,14 +205,20 @@ pub async fn my_team_message(
 
 pub enum SeasonTeamsList {
     Empty,
-    ByUser(Vec<(u64, Vec<String>)>),
+    ByUser {
+        league_name: &'static str,
+        assignments: Vec<(u64, Vec<String>)>,
+    },
 }
 
 pub async fn list_season_teams(data: &Data, guild_id: u64) -> Result<SeasonTeamsList, Error> {
-    let registrations = {
+    let (league_name, registrations) = {
         let conn = data.db.lock().await;
-        let (season, _) = League::for_guild(&conn, guild_id)?;
-        Registration::list_for_season(&conn, season.id)?
+        let (season, league) = League::for_guild(&conn, guild_id)?;
+        (
+            league.display_name(),
+            Registration::list_for_season(&conn, season.id)?,
+        )
     };
 
     if registrations.is_empty() {
@@ -227,14 +234,17 @@ pub async fn list_season_teams(data: &Data, guild_id: u64) -> Result<SeasonTeams
     }
 
     let mut user_ids: Vec<u64> = by_user.keys().copied().collect();
-    user_ids.sort();
+    user_ids.sort_unstable();
 
     let assignments = user_ids
         .into_iter()
         .map(|user_id| (user_id, by_user.remove(&user_id).unwrap_or_default()))
         .collect();
 
-    Ok(SeasonTeamsList::ByUser(assignments))
+    Ok(SeasonTeamsList::ByUser {
+        league_name,
+        assignments,
+    })
 }
 
 pub enum UnclaimedTeams {

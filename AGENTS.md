@@ -31,7 +31,7 @@ Strict layers — details when editing matching paths are in `.cursor/rules/`:
 | Concern | Adapter | Use case |
 |---------|---------|----------|
 | Registration | `commands/registration.rs` | `registration.rs` → `League` |
-| Shared standings | `commands/wc/standings.rs` | `League::standings` → `wc/standings` (format helpers in `standings.rs`) |
+| Shared standings | `commands/standings.rs` | `League::standings` → league module (format helpers in `standings.rs`) |
 | WC-only cmds | `commands/wc/` (`remaining`, `pick-player`) | `wc/` (registered via `commands_for(League)`) |
 | Config | `commands/config.rs` | inline DB (small, admin-only) |
 

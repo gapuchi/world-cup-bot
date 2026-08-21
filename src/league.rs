@@ -92,7 +92,8 @@ impl League {
     pub fn find_team<'a>(self, teams: &'a [CatalogTeam], query: &str) -> Option<&'a CatalogTeam> {
         let query = query.trim().to_lowercase();
         teams.iter().find(|team| {
-            team.name.to_lowercase() == query
+            let name = team.name.to_lowercase();
+            name == query
                 || team
                     .short_name
                     .as_ref()
@@ -101,7 +102,7 @@ impl League {
                     .code
                     .as_ref()
                     .is_some_and(|c| c.to_lowercase() == query)
-                || team.name.to_lowercase().contains(&query)
+                || name.contains(&query)
         })
     }
 
@@ -178,6 +179,19 @@ impl League {
             Self::Epl => {
                 epl::standings::clear_picks_for_team(conn, season_id, user_id, team_id)
             }
+        }
+    }
+
+    pub async fn pick_tiebreaker_player(
+        self,
+        data: &Data,
+        guild_id: u64,
+        user_id: u64,
+        player: &str,
+    ) -> Result<String, Error> {
+        match self {
+            Self::Wc => wc::pick_tiebreaker_player(data, guild_id, user_id, player).await,
+            Self::Epl => epl::pick_tiebreaker_player(data, guild_id, user_id, player).await,
         }
     }
 

@@ -8,4 +8,3 @@ pub mod remaining;
 
 pub(crate) use api::football_data;
 pub use tiebreaker::pick_tiebreaker_player;
-pub use remaining::FetchOutcome;

@@ -11,19 +11,6 @@ pub fn full_time_score(m: &Match) -> Option<(i64, i64)> {
     }
 }
 
-pub fn find_team<'a>(teams: &'a [Team], query: &str) -> Option<&'a Team> {
-    let query = query.trim().to_lowercase();
-    teams.iter().find(|team| {
-        team.name.to_lowercase() == query
-            || team
-                .short_name
-                .as_ref()
-                .is_some_and(|n| n.to_lowercase() == query)
-            || team.tla.as_ref().is_some_and(|t| t.to_lowercase() == query)
-            || team.name.to_lowercase().contains(&query)
-    })
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TeamRef {
     pub id: i64,

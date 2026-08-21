@@ -4,8 +4,8 @@ use rusqlite::Connection;
 
 use crate::{
     db::{Registration, WcMatchResult, WcPlayerGoalTotal, WcTiebreakerPick},
-    standings::StandingRow,
     scoring,
+    standings::StandingRow,
 };
 
 pub fn user_points(conn: &Connection, season_id: i64, user_id: u64) -> rusqlite::Result<i64> {
@@ -62,39 +62,34 @@ pub fn get_standings(conn: &Connection, season_id: i64) -> rusqlite::Result<Vec<
         entry.1.push(registration.team_name);
     }
 
-    let mut rows: Vec<StandingRow> = by_user
-        .into_iter()
-        .map(|(user_id, (team_ids, team_names))| {
-            let pick = WcTiebreakerPick::get_for_user(conn, season_id, user_id)
-                .ok()
-                .flatten();
-            let tiebreaker_goals = pick
-                .as_ref()
-                .map(|pick| {
-                    WcPlayerGoalTotal::goals_for_player(conn, season_id, pick.player_id)
-                        .unwrap_or(0)
-                })
-                .unwrap_or(0);
-            let mut teams: Vec<(String, i64)> = team_ids
-                .iter()
-                .zip(&team_names)
-                .map(|(team_id, team_name)| {
-                    (
-                        team_name.clone(),
-                        scoring::points_for_team(*team_id, &matches),
-                    )
-                })
-                .collect();
-            teams.sort_by(|a, b| a.0.cmp(&b.0));
-            StandingRow {
-                user_id,
-                points: scoring::points_for_teams(&team_ids, &matches),
-                teams,
-                tiebreaker_goals,
-                tiebreaker_player: pick.map(|pick| pick.player_name),
+    let mut rows = Vec::with_capacity(by_user.len());
+    for (user_id, (team_ids, team_names)) in by_user {
+        let pick = WcTiebreakerPick::get_for_user(conn, season_id, user_id)?;
+        let tiebreaker_goals = match &pick {
+            Some(pick) => {
+                WcPlayerGoalTotal::goals_for_player(conn, season_id, pick.player_id)?
             }
-        })
-        .collect();
+            None => 0,
+        };
+        let mut teams: Vec<(String, i64)> = team_ids
+            .iter()
+            .zip(&team_names)
+            .map(|(team_id, team_name)| {
+                (
+                    team_name.clone(),
+                    scoring::points_for_team(*team_id, &matches),
+                )
+            })
+            .collect();
+        teams.sort_by(|a, b| a.0.cmp(&b.0));
+        rows.push(StandingRow {
+            user_id,
+            points: scoring::points_for_teams(&team_ids, &matches),
+            teams,
+            tiebreaker_goals,
+            tiebreaker_player: pick.map(|pick| pick.player_name),
+        });
+    }
 
     rows.sort_by(|a, b| {
         b.points

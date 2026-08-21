@@ -12,11 +12,15 @@ alwaysApply: false
 - `FootballDataApi` methods that map to endpoints
 - `ApiError`, rate-limit handling
 - Serde structs matching API JSON (`Team`, `Match`, `SquadPlayer`, `Scorer`)
+- Shared client construction (`FootballDataApi::from_env`)
 
 **Belongs in `soccar.rs` (not `api/`):**
-- `find_team`, `find_players`
+- `find_players`, squad fetch orchestration
 - `fetch_squads_for_teams` (multi-call orchestration + role filter)
 - `full_time_score` (interpreting nullable API score fields)
-- `SquadPlayerMatch`
+- `SquadPlayerMatch`, team classification helpers
 
-Call sites use `ctx.data().soccar_api()` or `data.soccar_api()`.
+Team name lookup for registration uses `League::find_team` on `CatalogTeam`.
+
+League modules obtain the client via `wc::football_data(data)` / `epl::football_data(data)`
+(thin wrappers around `FootballDataApi::from_env`).

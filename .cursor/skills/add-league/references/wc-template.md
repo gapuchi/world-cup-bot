@@ -42,10 +42,8 @@ Use while implementing a new league. Copy structure, not tournament rules.
 | Path | Shared vs WC-only |
 |------|-------------------|
 | `commands/registration.rs` | Shared |
-| `commands/wc/standings.rs` | Shared surface, dispatches via `League` |
-| `commands/wc/season.rs` | Shared surface |
+| `commands/standings.rs` | Shared surface, dispatches via `League` |
 | `commands/wc/remaining.rs` | WC-only + focus guard |
-| `commands/wc/pick_player.rs` | WC-only + focus guard |
 
 ## NFL/NBA schema stubs
 

@@ -153,7 +153,7 @@ async fn process_match(
             away_goals,
         };
 
-        let league = League::Epl;
+        let league = League::for_season(&conn, season.id)?;
         let mut updates = Vec::new();
 
         if let Some(registration) = Registration::get_by_team(&conn, season.id, home_team_id)? {
